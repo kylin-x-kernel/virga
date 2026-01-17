@@ -18,11 +18,10 @@
 
 use crate::error::{Result, VirgeError};
 use crate::transport::Transport;
+use async_trait::async_trait;
 use futures::future::poll_fn;
 use futures::AsyncReadExt;
 use futures::AsyncWriteExt;
-use std::pin::Pin;
-use std::future::Future;
 use tokio_util::compat::TokioAsyncReadCompatExt;
 use tokio_vsock::VsockStream;
 
@@ -63,83 +62,73 @@ impl YamuxTransport {
     }
 }
 
+#[async_trait]
 impl Transport for YamuxTransport {
-    fn connect(&mut self, cid: u32, port: u32) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>> {
-        Box::pin(async move {
-            log::info!("Yamux transport connecting to cid={}, port={}", cid, port);
+    async fn connect(&mut self, cid: u32, port: u32) -> Result<()> {
+        log::info!("Yamux transport connecting to cid={}, port={}", cid, port);
 
-            // 建立 vsock 连接
-            let stream = VsockStream::connect(tokio_vsock::VsockAddr::new(cid, port))
-                .await
-                .map_err(|e| VirgeError::ConnectionError(format!("Failed to connect vsock: {}", e)))?;
+        // 建立 vsock 连接
+        let stream = VsockStream::connect(tokio_vsock::VsockAddr::new(cid, port))
+            .await
+            .map_err(|e| VirgeError::ConnectionError(format!("Failed to connect vsock: {}", e)))?;
 
-            // 初始化 yamux
-            let config = yamux::Config::default();
-            let connection = yamux::Connection::new(stream.compat(), config, yamux::Mode::Client);
+        // 初始化 yamux
+        let config = yamux::Config::default();
+        let connection = yamux::Connection::new(stream.compat(), config, yamux::Mode::Client);
 
-            self.connection = Some(connection);
+        self.connection = Some(connection);
 
-            log::info!("Yamux transport connected successfully");
-            Ok(())
-        })
+        log::info!("Yamux transport connected successfully");
+        Ok(())
     }
 
-    fn disconnect(&mut self) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>> {
-        Box::pin(async move {
-            log::info!("Yamux transport disconnecting");
+    async fn disconnect(&mut self) -> Result<()> {
+        log::info!("Yamux transport disconnecting");
 
-            // 清理资源
-            self.yamux_stream = None;
-            self.connection = None;
+        // 清理资源
+        self.yamux_stream = None;
+        self.connection = None;
 
-            log::info!("Yamux transport disconnected");
-            Ok(())
-        })
+        log::info!("Yamux transport disconnected");
+        Ok(())
     }
 
-    fn send(&mut self, data: Vec<u8>) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>> {
-        Box::pin(async move {
-            if !self.is_connected() {
-                return Err(VirgeError::TransportError(
-                    "Yamux transport not connected".to_string(),
-                ));
-            }
+    async fn send(&mut self, data: Vec<u8>) -> Result<()> {
+        if !self.is_connected() {
+            return Err(VirgeError::TransportError(
+                "Yamux transport not connected".to_string(),
+            ));
+        }
 
-            let stream = self.get_or_create_stream().await?;
-            stream.write_all(&data).await
-                .map_err(|e| VirgeError::IoError(std::io::Error::new(std::io::ErrorKind::Other, e)))?;
+        let stream = self.get_or_create_stream().await?;
+        stream.write_all(&data).await
+            .map_err(|e| VirgeError::IoError(std::io::Error::new(std::io::ErrorKind::Other, e)))?;
 
-            log::debug!("Yamux sent {} bytes", data.len());
-            Ok(())
-        })
+        log::debug!("Yamux sent {} bytes", data.len());
+        Ok(())
     }
 
-    fn recv(&mut self) -> Pin<Box<dyn Future<Output = Result<Vec<u8>>> + Send + '_>> {
-        Box::pin(async move {
-            if !self.is_connected() {
-                return Err(VirgeError::TransportError(
-                    "Yamux transport not connected".to_string(),
-                ));
-            }
+    async fn recv(&mut self) -> Result<Vec<u8>> {
+        if !self.is_connected() {
+            return Err(VirgeError::TransportError(
+                "Yamux transport not connected".to_string(),
+            ));
+        }
 
-            let stream = self.get_or_create_stream().await?;
-            let mut buf = Vec::new();
-            stream.read_to_end(&mut buf).await
-                .map_err(|e| VirgeError::IoError(std::io::Error::new(std::io::ErrorKind::Other, e)))?;
+        let stream = self.get_or_create_stream().await?;
+        let mut buf = Vec::new();
+        stream.read_to_end(&mut buf).await
+            .map_err(|e| VirgeError::IoError(std::io::Error::new(std::io::ErrorKind::Other, e)))?;
 
-            log::debug!("Yamux received {} bytes", buf.len());
-            Ok(buf)
-        })
+        log::debug!("Yamux received {} bytes", buf.len());
+        Ok(buf)
     }
 
     fn is_connected(&self) -> bool {
         self.connection.is_some()
     }
-}
 
-impl YamuxTransport {
-    /// 从现有 tokio-vsock 流初始化传输协议（服务器模式）
-    pub async fn from_tokio_stream(&mut self, stream: tokio_vsock::VsockStream) -> Result<()> {
+    async fn from_tokio_stream(&mut self, stream: tokio_vsock::VsockStream) -> Result<()> {
         log::info!("Yamux transport initializing from existing tokio stream");
 
         // 初始化 yamux

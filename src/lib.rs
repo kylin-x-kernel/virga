@@ -48,9 +48,9 @@
 //! }
 //! ```
 
-// ============================================================================
-// 模块声明与导出
-// ============================================================================
+// 特性冲突检测
+#[cfg(all(feature = "use-yamux", feature = "use-xtransport"))]
+compile_error!("Features 'use-yamux' and 'use-xtransport' cannot be enabled at the same time. Please choose only one transport protocol.");
 
 // 错误层
 pub mod error;
@@ -65,12 +65,6 @@ pub mod server;
 
 pub use client::{VirgeClient, ClientConfig};
 pub use server::{VirgeServer, ServerConfig};
-
-// ============================================================================
-// 常数定义
-// ============================================================================
-
-
 
 
 pub const DEFAULT_SERVER_CID: usize = 103;

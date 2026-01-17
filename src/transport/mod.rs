@@ -32,13 +32,10 @@ pub mod yamux_impl;
 pub mod xtransport_impl;
 
 use crate::error::Result;
-use std::pin::Pin;
-use std::future::Future;
+use async_trait::async_trait;
 
 /// 传输协议抽象 trait
-///
-/// 直接封装 vsock 连接和传输协议，提供开箱即用的接口。
-/// 每个实现负责管理自己的 vsock 连接和协议状态。
+#[async_trait]
 pub trait Transport: Send + Sync {
     /// 建立 vsock 连接并初始化传输协议（客户端模式）
     ///
@@ -48,7 +45,7 @@ pub trait Transport: Send + Sync {
     ///
     /// # Returns
     /// 连接成功返回 Ok，否则返回错误
-    fn connect(&mut self, cid: u32, port: u32) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>>;
+    async fn connect(&mut self, cid: u32, port: u32) -> Result<()>;
 
     /// 从现有 vsock 流初始化传输协议（服务器模式）
     ///
@@ -57,13 +54,18 @@ pub trait Transport: Send + Sync {
     ///
     /// # Returns
     /// 初始化成功返回 Ok，否则返回错误
-    fn from_stream(&mut self, _stream: vsock::VsockStream) -> Result<()> {
-        // 默认实现：不支持服务器模式
-        Err(crate::error::VirgeError::Other("Server mode not supported".to_string()))
+    #[cfg(feature = "use-yamux")]
+    async fn from_tokio_stream(&mut self, _stream: tokio_vsock::VsockStream) -> Result<()> {
+        Err(crate::error::VirgeError::Other("Yamux from_tokio_stream not implemented".to_string()))
+    }
+
+    #[cfg(feature = "use-xtransport")]
+    async fn from_stream(&mut self, _stream: vsock::VsockStream) -> Result<()> {
+        Err(crate::error::VirgeError::Other("XTransport from_stream not implemented".to_string()))
     }
 
     /// 断开连接并清理资源
-    fn disconnect(&mut self) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>>;
+    async fn disconnect(&mut self) -> Result<()>;
 
     /// 发送数据
     ///
@@ -72,13 +74,13 @@ pub trait Transport: Send + Sync {
     ///
     /// # Returns
     /// 成功发送返回 Ok，否则返回错误
-    fn send(&mut self, data: Vec<u8>) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>>;
+    async fn send(&mut self, data: Vec<u8>) -> Result<()>;
 
     /// 接收数据
     ///
     /// # Returns
     /// 返回接收到的字节数据，或错误
-    fn recv(&mut self) -> Pin<Box<dyn Future<Output = Result<Vec<u8>>> + Send + '_>>;
+    async fn recv(&mut self) -> Result<Vec<u8>>;
 
     /// 检查连接是否活跃
     fn is_connected(&self) -> bool;

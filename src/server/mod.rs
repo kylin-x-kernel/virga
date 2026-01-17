@@ -36,6 +36,7 @@
 //! }
 //! ```
 
+use log::*;
 use crate::error::Result;
 use crate::transport::Transport;
 
@@ -46,6 +47,8 @@ pub enum TransportType {
     Yamux,
     #[cfg(feature = "use-xtransport")]
     XTransport,
+    #[cfg(not(any(feature = "use-yamux", feature = "use-xtransport")))]
+    None,
 }
 
 /// 服务器配置
@@ -64,13 +67,21 @@ pub struct ServerConfig {
 impl Default for ServerConfig {
     fn default() -> Self {
         Self {
-            listen_cid: crate::DEFAULT_SERVER_CID as u32,
+            listen_cid: vsock::VMADDR_CID_ANY as u32,
             listen_port: crate::DEFAULT_SERVER_PORT as u32,
             max_connections: 100,
         }
     }
 }
 
+
+/// 监听器枚举
+enum Listener {
+    #[cfg(feature = "use-yamux")]
+    Yamux(tokio_vsock::VsockListener),
+    #[cfg(feature = "use-xtransport")]
+    XTransport(vsock::VsockListener),
+}
 
 /// Virga 服务器
 ///
@@ -83,27 +94,32 @@ pub struct VirgeServer {
     transport_type: TransportType,
 
     /// vsock 监听器
-    #[cfg(feature = "use-yamux")]
-    yamux_listener: Option<tokio_vsock::VsockListener>,
-
-    #[cfg(feature = "use-xtransport")]
-    xtransport_listener: Option<vsock::VsockListener>,
+    listener: Option<Listener>,
 
     /// 监听状态
     listening: bool,
 }
 
 impl VirgeServer {
+    pub fn new(config: ServerConfig) -> Self {
+        #[cfg(feature = "use-xtransport")]
+        if cfg!(feature = "use-xtransport") {
+            return Self::with_xtransport(config);
+        }
+        #[cfg(feature = "use-yamux")]
+        if cfg!(feature = "use-yamux") {
+            return Self::with_yamux(config);
+        }
+        panic!("Either use-yamux or use-xtransport feature must be enabled");
+    }
+
     /// 使用 Yamux 创建服务器
     #[cfg(feature = "use-yamux")]
     pub fn with_yamux(config: ServerConfig) -> Self {
         Self {
             config,
             transport_type: TransportType::Yamux,
-            #[cfg(feature = "use-yamux")]
-            yamux_listener: None,
-            #[cfg(feature = "use-xtransport")]
-            xtransport_listener: None,
+            listener: None,
             listening: false,
         }
     }
@@ -114,17 +130,14 @@ impl VirgeServer {
         Self {
             config,
             transport_type: TransportType::XTransport,
-            #[cfg(feature = "use-yamux")]
-            yamux_listener: None,
-            #[cfg(feature = "use-xtransport")]
-            xtransport_listener: None,
+            listener: None,
             listening: false,
         }
     }
 
     /// 启动监听
     pub async fn listen(&mut self) -> Result<()> {
-        log::info!(
+        info!(
             "VirgeServer listening on cid={}, port={}",
             self.config.listen_cid,
             self.config.listen_port
@@ -136,7 +149,7 @@ impl VirgeServer {
                 let addr = tokio_vsock::VsockAddr::new(self.config.listen_cid, self.config.listen_port);
                 let listener = tokio_vsock::VsockListener::bind(addr)
                     .map_err(|e| crate::error::VirgeError::ConnectionError(format!("Failed to bind yamux listener: {}", e)))?;
-                self.yamux_listener = Some(listener);
+                self.listener = Some(Listener::Yamux(listener));
                 self.listening = true;
                 Ok(())
             }
@@ -145,7 +158,7 @@ impl VirgeServer {
                 let addr = vsock::VsockAddr::new(self.config.listen_cid, self.config.listen_port);
                 let listener = vsock::VsockListener::bind(&addr)
                     .map_err(|e| crate::error::VirgeError::ConnectionError(format!("Failed to bind xtransport listener: {}", e)))?;
-                self.xtransport_listener = Some(listener);
+                self.listener = Some(Listener::XTransport(listener));
                 self.listening = true;
                 Ok(())
             }
@@ -167,10 +180,10 @@ impl VirgeServer {
         match self.transport_type {
             #[cfg(feature = "use-yamux")]
             TransportType::Yamux => {
-                if let Some(listener) = &mut self.yamux_listener {
+                if let Some(Listener::Yamux(listener)) = &mut self.listener {
                     let (stream, addr) = listener.accept().await
                         .map_err(|e| crate::error::VirgeError::ConnectionError(format!("Failed to accept yamux connection: {}", e)))?;
-                    log::info!("Accepted yamux connection from {:?}", addr);
+                    info!("Accepted yamux connection from {:?}", addr);
 
                     // 创建 YamuxTransport 实例并从流初始化
                     let mut transport = Box::new(crate::transport::YamuxTransport::new());
@@ -183,14 +196,14 @@ impl VirgeServer {
             }
             #[cfg(feature = "use-xtransport")]
             TransportType::XTransport => {
-                if let Some(listener) = &mut self.xtransport_listener {
+                if let Some(Listener::XTransport(listener)) = &mut self.listener {
                     let (stream, addr) = listener.accept()
                         .map_err(|e| crate::error::VirgeError::ConnectionError(format!("Failed to accept xtransport connection: {}", e)))?;
-                    log::info!("Accepted xtransport connection from {:?}", addr);
+                    info!("Accepted xtransport connection from {:?}", addr);
 
                     // 创建 XTransportHandler 实例并从流初始化
                     let mut transport = Box::new(crate::transport::XTransportHandler::new());
-                    transport.from_stream(stream)?;
+                    transport.from_stream(stream).await?;
 
                     Ok(transport)
                 } else {
@@ -206,17 +219,10 @@ impl VirgeServer {
 
     /// 停止监听
     pub async fn stop(&mut self) -> Result<()> {
-        log::info!("VirgeServer stopping");
+        info!("VirgeServer stopping");
 
         // 清理监听器
-        #[cfg(feature = "use-yamux")]
-        {
-            self.yamux_listener = None;
-        }
-        #[cfg(feature = "use-xtransport")]
-        {
-            self.xtransport_listener = None;
-        }
+        self.listener = None;
 
         self.listening = false;
         Ok(())

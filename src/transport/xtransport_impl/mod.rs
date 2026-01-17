@@ -15,24 +15,27 @@
 //! └─────────────────────────────────┘
 //! ```
 
+use log::*;
 use crate::error::{Result, VirgeError};
 use crate::transport::Transport;
-use std::pin::Pin;
-use std::future::Future;
+use async_trait::async_trait;
+
+use vsock::{VsockAddr, VsockStream};
+use xtransport::{TransportConfig, XTransport};
+
 
 /// XTransport 传输协议实现
 ///
 /// 直接管理 vsock 连接并使用 xtransport 进行传输。
 pub struct XTransportHandler {
     /// vsock 连接流
-    stream: Option<vsock::VsockStream>,
+    stream: Option<VsockStream>,
 
     /// xtransport 处理器
-    transport: Option<xtransport::XTransport<vsock::VsockStream>>,
+    transport: Option<XTransport<VsockStream>>,
 }
 
 impl XTransportHandler {
-    /// 创建新的 XTransport 传输实例
     pub fn new() -> Self {
         Self {
             stream: None,
@@ -41,86 +44,78 @@ impl XTransportHandler {
     }
 }
 
+#[async_trait]
 impl Transport for XTransportHandler {
-    fn connect(&mut self, cid: u32, port: u32) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>> {
-        Box::pin(async move {
-            log::info!("XTransport connecting to cid={}, port={}", cid, port);
+    async fn connect(&mut self, cid: u32, port: u32) -> Result<()> {
+        info!("XTransport connecting to cid={}, port={}", cid, port);
 
-            // 建立 vsock 连接
-            let addr = vsock::VsockAddr::new(cid, port);
-            let stream = vsock::VsockStream::connect(&addr)
-                .map_err(|e| VirgeError::ConnectionError(format!("Failed to connect vsock: {}", e)))?;
-
-            // 初始化 xtransport
-            let config = xtransport::TransportConfig::default()
-                .with_max_frame_size(1024)
-                .with_ack(false);
-            let transport = xtransport::XTransport::new(stream.try_clone()?, config);
-
-            self.stream = Some(stream);
-            self.transport = Some(transport);
-
-            log::info!("XTransport connected successfully");
-            Ok(())
-        })
-    }
-
-    fn from_stream(&mut self, stream: vsock::VsockStream) -> Result<()> {
-        log::info!("XTransport initializing from existing stream");
+        // 建立 vsock 连接
+        let stream = VsockStream::connect(&VsockAddr::new(cid, port))
+            .map_err(|e| VirgeError::ConnectionError(format!("Failed to connect vsock: {}", e)))?;
 
         // 初始化 xtransport
-        let config = xtransport::TransportConfig::default()
+        let config = TransportConfig::default()
             .with_max_frame_size(1024)
             .with_ack(false);
-        let transport = xtransport::XTransport::new(stream.try_clone()?, config);
+        let transport = XTransport::new(stream.try_clone()?, config);
 
         self.stream = Some(stream);
         self.transport = Some(transport);
 
-        log::info!("XTransport initialized from stream successfully");
+        info!("XTransport connected successfully");
         Ok(())
     }
 
-    fn disconnect(&mut self) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>> {
-        Box::pin(async move {
-            log::info!("XTransport disconnecting");
+    async fn disconnect(&mut self) -> Result<()> {
+        info!("XTransport disconnecting");
 
-            // 清理资源
-            self.transport = None;
-            self.stream = None;
+        // 清理资源
+        self.transport = None;
+        self.stream = None;
 
-            log::info!("XTransport disconnected");
-            Ok(())
-        })
+        info!("XTransport disconnected");
+        Ok(())
     }
 
-    fn send(&mut self, data: Vec<u8>) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>> {
-        Box::pin(async move {
-            let transport = self.transport.as_mut()
-                .ok_or_else(|| VirgeError::TransportError("XTransport not connected".to_string()))?;
+    async fn send(&mut self, data: Vec<u8>) -> Result<()> {
+        let transport = self.transport.as_mut()
+            .ok_or_else(|| VirgeError::TransportError("XTransport not connected".to_string()))?;
 
-            transport.send_message(&data)
-                .map_err(|e| VirgeError::Other(format!("XTransport send error: {}", e)))?;
+        transport.send_message(&data)
+            .map_err(|e| VirgeError::Other(format!("XTransport send error: {}", e)))?;
 
-            log::debug!("XTransport sent {} bytes", data.len());
-            Ok(())
-        })
+        log::debug!("XTransport sent {} bytes", data.len());
+        Ok(())
     }
 
-    fn recv(&mut self) -> Pin<Box<dyn Future<Output = Result<Vec<u8>>> + Send + '_>> {
-        Box::pin(async move {
-            let transport = self.transport.as_mut()
-                .ok_or_else(|| VirgeError::TransportError("XTransport not connected".to_string()))?;
+    async fn recv(&mut self) -> Result<Vec<u8>> {
+        let transport = self.transport.as_mut()
+            .ok_or_else(|| VirgeError::TransportError("XTransport not connected".to_string()))?;
 
-            let data = transport.recv_message()
-                .map_err(|e| VirgeError::Other(format!("XTransport recv error: {}", e)))?;
+        let data = transport.recv_message()
+            .map_err(|e| VirgeError::Other(format!("XTransport recv error: {}", e)))?;
 
-            log::debug!("XTransport received {} bytes", data.len());
-            Ok(data)
-        })
+        log::debug!("XTransport received {} bytes", data.len());
+        Ok(data)
     }
 
     fn is_connected(&self) -> bool {
         self.stream.is_some() && self.transport.is_some()
+    }
+
+    async fn from_stream(&mut self, stream: VsockStream) -> Result<()> {
+        info!("XTransport initializing from existing stream");
+
+        // 初始化 xtransport
+        let config = TransportConfig::default()
+            .with_max_frame_size(1024)
+            .with_ack(false);
+        let transport = XTransport::new(stream.try_clone()?, config);
+
+        self.stream = Some(stream);
+        self.transport = Some(transport);
+
+        info!("XTransport initialized from stream successfully");
+        Ok(())
     }
 }

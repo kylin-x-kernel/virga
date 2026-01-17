@@ -34,15 +34,16 @@
 //! client.disconnect().await?;
 //! ```
 
+use log::*;
 use crate::error::Result;
 use crate::transport::Transport;
 
 /// 客户端配置
 #[derive(Clone, Debug)]
 pub struct ClientConfig {
-    pub server_cid: u32,
-    pub server_port: u32,
-    pub connect_timeout_ms: u64,
+    server_cid: u32,
+    server_port: u32,
+    connect_timeout_ms: u64,
 }
 
 impl Default for ClientConfig {
@@ -69,16 +70,20 @@ pub struct VirgeClient {
 
 
 impl VirgeClient {
-    // 如果没有任何feature被启用，提供一个默认实现
-    #[cfg(not(any(feature = "feature1", feature = "feature2")))]
     pub fn new(config: ClientConfig) -> Self {
+        #[cfg(feature = "use-xtransport")]
+        if cfg!(feature = "use-xtransport") {
+            return Self::with_xtransport(config);
+        }
+        #[cfg(feature = "use-yamux")]
+        if cfg!(feature = "use-yamux") {
+            return Self::with_yamux(config);
+        }
         panic!("Either use-yamux or use-xtransport feature must be enabled");
     }
 
-        
-    /// 使用 Yamux 创建客户端
     #[cfg(feature = "use-yamux")]
-    pub fn new(config: ClientConfig) -> Self {
+    pub fn with_yamux(config: ClientConfig) -> Self {
         Self {
             transport: Box::new(crate::transport::YamuxTransport::new()),
             config,
@@ -86,9 +91,8 @@ impl VirgeClient {
         }
     }
 
-    /// 使用 XTransport 创建客户端
     #[cfg(feature = "use-xtransport")]
-    pub fn new(config: ClientConfig) -> Self {
+    pub fn with_xtransport(config: ClientConfig) -> Self {
         Self {
             transport: Box::new(crate::transport::XTransportHandler::new()),
             config,
@@ -98,7 +102,7 @@ impl VirgeClient {
     
     /// 建立连接
     pub async fn connect(&mut self) -> Result<()> {
-        log::info!(
+        info!(
             "VirgeClient connecting to cid={}, port={}",
             self.config.server_cid,
             self.config.server_port
@@ -111,7 +115,7 @@ impl VirgeClient {
     
     /// 断开连接
     pub async fn disconnect(&mut self) -> Result<()> {
-        log::info!("VirgeClient disconnecting");
+        info!("VirgeClient disconnecting");
         
         // TODO: 调用 transport.disconnect()
         self.transport.disconnect().await?;
