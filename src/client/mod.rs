@@ -40,16 +40,9 @@ use crate::transport::Transport;
 /// 客户端配置
 #[derive(Clone, Debug)]
 pub struct ClientConfig {
-    /// 服务器 CID
     pub server_cid: u32,
-    
-    /// 服务器端口
     pub server_port: u32,
-    
-    /// 连接超时（毫秒）
     pub connect_timeout_ms: u64,
-    
-    // 其他配置...
 }
 
 impl Default for ClientConfig {
@@ -62,9 +55,7 @@ impl Default for ClientConfig {
     }
 }
 
-/// Virga 客户端
-///
-/// 提供基于选定传输协议的高级客户端接口。
+/// Virga 客户端：提供基于选定传输协议的高级客户端接口。
 pub struct VirgeClient {
     /// 传输协议实现
     transport: Box<dyn Transport>,
@@ -76,20 +67,28 @@ pub struct VirgeClient {
     connected: bool,
 }
 
+
 impl VirgeClient {
+    // 如果没有任何feature被启用，提供一个默认实现
+    #[cfg(not(any(feature = "feature1", feature = "feature2")))]
+    pub fn new(config: ClientConfig) -> Self {
+        panic!("Either use-yamux or use-xtransport feature must be enabled");
+    }
+
+        
     /// 使用 Yamux 创建客户端
-    pub fn with_yamux(config: ClientConfig) -> Self {
-        // TODO: 创建 YamuxTransport 实例
+    #[cfg(feature = "use-yamux")]
+    pub fn new(config: ClientConfig) -> Self {
         Self {
             transport: Box::new(crate::transport::YamuxTransport::new()),
             config,
             connected: false,
         }
     }
-    
+
     /// 使用 XTransport 创建客户端
-    pub fn with_xtransport(config: ClientConfig) -> Self {
-        // TODO: 创建 XTransportHandler 实例
+    #[cfg(feature = "use-xtransport")]
+    pub fn new(config: ClientConfig) -> Self {
         Self {
             transport: Box::new(crate::transport::XTransportHandler::new()),
             config,
@@ -104,13 +103,8 @@ impl VirgeClient {
             self.config.server_cid,
             self.config.server_port
         );
-        
-        // TODO:
-        // 1. 设置连接参数到 transport
-        // 2. 调用 transport.connect()
-        // 3. 设置 connected = true
-        
-        self.transport.connect().await?;
+
+        self.transport.connect(self.config.server_cid, self.config.server_port).await?;
         self.connected = true;
         Ok(())
     }
@@ -150,6 +144,6 @@ impl VirgeClient {
     
     /// 检查连接状态
     pub fn is_connected(&self) -> bool {
-        self.connected && self.transport.is_active()
+        self.connected && self.transport.is_connected()
     }
 }

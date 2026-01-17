@@ -2,12 +2,16 @@
 name = "virga"
 version = "0.1.0"
 edition = "2024"
+authors = [
+    "Huangshijia <shijia727@outlook.com>",
+]
 
 
 [features]
 default = ["use-xtransport"]          # 默认启用 use-xtransport 特性
 use-yamux = ["yamux", "tokio", "tokio-util", "tokio-vsock", "futures"]
 use-xtransport = ["vsock", "xtransport"]
+all = ["use-yamux", "use-xtransport"]
 
 
 [dependencies]

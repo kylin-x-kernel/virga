@@ -1,16 +1,10 @@
-
-
-
-
-
 //! Virga: 基于 vsock 的传输库
 //!
 //! Virga 是一个基于 vsock 的字节流传输库，支持多种传输协议（yamux、xtransport 等）。
 //!
 //! # 架构分层
 //! - **应用层（Application）**：`VirgeClient`、`VirgeServer` - 用户直接使用的高级 API
-//! - **协议层（Protocol）**：`Transport` trait 及其实现（Yamux、XTransport）
-//! - **连接层（Connection）**：`VsockConnection` trait - 底层 vsock 操作抽象
+//! - **协议层（Protocol）**：`Transport` trait 及其实现（Yamux、XTransport）- 直接管理 vsock 连接
 //! - **错误层（Error）**：统一的错误类型
 //!
 //! # 快速开始
@@ -42,10 +36,14 @@
 //!     let config = ServerConfig::default();
 //!     let mut server = VirgeServer::with_yamux(config);
 //!     server.listen().await?;
-//!     
-//!     loop {
-//!         let data = server.recv().await?;
-//!         server.send(data).await?;
+//!
+//!     while let Ok(mut transport) = server.accept().await {
+//!         tokio::spawn(async move {
+//!             let data = transport.recv().await?;
+//!             transport.send(data).await?;
+//!             transport.disconnect().await?;
+//!             Ok::<(), Box<dyn std::error::Error>>(())
+//!         });
 //!     }
 //! }
 //! ```
@@ -57,9 +55,6 @@
 // 错误层
 pub mod error;
 pub use error::{VirgeError, Result};
-
-// 连接层
-pub mod connection;
 
 // 协议层
 pub mod transport;

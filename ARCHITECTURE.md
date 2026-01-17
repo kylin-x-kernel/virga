@@ -17,15 +17,8 @@ Virga 是一个基于 vsock 的字节流传输库，支持多种传输协议（y
 ┌──────────────────────▼───────────────────────────────────────┐
 │  协议层（Protocol Layer）                                     │
 │  Transport Trait + 具体实现（Yamux、XTransport）             │
-│  职责：屏蔽传输协议差异，提供统一接口                        │
-│  依赖：连接层                                                 │
-└──────────────────────┬───────────────────────────────────────┘
-                       │
-┌──────────────────────▼───────────────────────────────────────┐
-│  连接层（Connection Layer）                                   │
-│  VsockConnection Trait + 底层实现                            │
-│  职责：vsock 连接管理，生命周期控制                          │
-│  依赖：错误层、底层库（tokio-vsock、vsock）                 │
+│  职责：直接管理 vsock 连接和传输协议，提供开箱即用接口      │
+│  依赖：错误层、底层库（tokio-vsock、vsock、yamux、xtransport） │
 └──────────────────────┬───────────────────────────────────────┘
                        │
 ┌──────────────────────▼───────────────────────────────────────┐
@@ -52,27 +45,36 @@ Virga 是一个基于 vsock 的字节流传输库，支持多种传输协议（y
 - 添加新的错误类别时
 - 需要更详细的错误上下文时
 
-### 3.2 连接层（`src/connection/mod.rs`）
+### 3.2 协议层（`src/transport/mod.rs` 及子目录）
 
-定义 `VsockConnection` trait，标准化 vsock 操作：
+定义 `Transport` trait，直接封装 vsock 连接和传输协议：
 
 ```rust
-pub trait VsockConnection: Send + Sync {
-    fn connect(&mut self, cid: u32, port: u32) -> impl Future<Output = Result<()>>;
-    fn disconnect(&mut self) -> impl Future<Output = Result<()>>;
-    fn read_exact(&mut self, buf: &mut [u8]) -> impl Future<Output = Result<()>>;
-    fn write_all(&mut self, buf: &[u8]) -> impl Future<Output = Result<()>>;
+pub trait Transport: Send + Sync {
+    fn connect(&mut self, cid: u32, port: u32) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>>;
+    fn disconnect(&mut self) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>>;
+    fn send(&mut self, data: Vec<u8>) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>>;
+    fn recv(&mut self) -> Pin<Box<dyn Future<Output = Result<Vec<u8>>> + Send + '_>>;
     fn is_connected(&self) -> bool;
 }
 ```
 
-**实现候选**：
-- `TokioVsockImpl`：基于 tokio-vsock 的异步实现
-- `VsockImpl`：基于原生 vsock 的实现
+**具体实现**：
+- `YamuxTransport`（`src/transport/yamux_impl/mod.rs`）
+  - 基于 tokio-vsock + yamux
+  - 支持多路复用，适合并发场景
+  - 客户端：`connect(cid, port)`
+  - 服务器：`from_tokio_stream(stream)`
+
+- `XTransportHandler`（`src/transport/xtransport_impl/mod.rs`）
+  - 基于 vsock + xtransport
+  - 轻量级，适合简单传输
+  - 客户端：`connect(cid, port)`
+  - 服务器：`from_stream(stream)`
 
 **何时扩展**：
-- 支持不同的底层库时（如 mio、async-std）
-- 需要特殊的连接管理（如连接池、重试机制）时
+- 支持新的传输协议时（如 QUIC、mtp）
+- 需要不同的底层库组合时
 
 ### 3.3 协议层（`src/transport/mod.rs` 及子目录）
 
@@ -125,16 +127,21 @@ client.disconnect().await?;
 
 职责：
 - 监听 vsock 连接
-- 处理客户端连接
-- 提供 `send()`/`recv()` 接口
+- 为每个连接创建独立的 Transport 实例
+- 返回 `Connection` 句柄供用户处理
 
 使用示例：
 ```rust
 let mut server = VirgeServer::with_yamux(ServerConfig::default());
 server.listen().await?;
-loop {
-    let data = server.recv().await?;
-    server.send(data).await?;
+
+while let Ok(mut transport) = server.accept().await {
+    tokio::spawn(async move {
+        let data = transport.recv().await?;
+        transport.send(data).await?;
+        transport.disconnect().await?;
+        Ok::<(), Box<dyn std::error::Error>>(())
+    });
 }
 ```
 
@@ -190,9 +197,11 @@ cargo build --no-default-features --features "use-yamux use-xtranport"
   │   ├─ 数据编码（如需要）
   │   └─ 虚拟流分配（yamux 情况下）
   │
-协议层/连接层边界
+协议层边界
   │
-  ├─ VsockConnection::write_all(encoded_data)
+  ├─ Transport::send(encoded_data)
+  │   ├─ 协议编码（如需要）
+  │   ├─ vsock 连接管理
   │   ├─ vsock 缓冲
   │   └─ 网络传输
   │
@@ -207,9 +216,11 @@ cargo build --no-default-features --features "use-yamux use-xtranport"
   │
   └─ 从 Host Kernel 接收
   │
-连接层
+协议层
   │
-  ├─ VsockConnection::read_exact(buf)
+  ├─ Transport::recv()
+  │   ├─ 协议解码（如需要）
+  │   ├─ vsock 连接管理
   │   ├─ 等待数据到达
   │   └─ 读入缓冲
   │
@@ -276,17 +287,17 @@ pub struct ServerConfig {
 
 **Phase 1：基础框架**（当前）
 - ✅ 错误定义
-- ✅ 连接层 trait 定义
-- ✅ 协议层 trait 定义
+- ✅ 协议层 trait 定义（直接管理连接）
 - ✅ 应用层 trait 定义
-- ⏳ 底层实现（TokioVsockImpl、YamuxTransport 等）
+- ✅ YamuxTransport 实现
+- ✅ XTransportHandler 实现
+- ⏳ 服务器并发处理优化
 
 **Phase 2：核心实现**
-- [ ] 实现 TokioVsockImpl
-- [ ] 实现 YamuxTransport
-- [ ] 实现 XTransportHandler
+- [ ] 完善服务器 Connection 处理
 - [ ] 编写单元测试
 - [ ] 编写集成测试
+- [ ] 性能优化
 
 **Phase 3：优化与扩展**
 - [ ] 连接池
