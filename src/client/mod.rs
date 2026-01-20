@@ -43,7 +43,6 @@ use crate::transport::Transport;
 pub struct ClientConfig {
     server_cid: u32,
     server_port: u32,
-    connect_timeout_ms: u64,
 }
 
 impl Default for ClientConfig {
@@ -51,7 +50,6 @@ impl Default for ClientConfig {
         Self {
             server_cid: crate::DEFAULT_SERVER_CID as u32,
             server_port: crate::DEFAULT_SERVER_PORT as u32,
-            connect_timeout_ms: 5000,
         }
     }
 }

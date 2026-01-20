@@ -29,28 +29,40 @@
 //!
 //! ## 服务器使用
 //! ```ignore
-//! use virga::server::{VirgeServer, ServerConfig};
+//! use virga::server::{ServerManager, VirgeServer, ServerConfig};
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     let config = ServerConfig::default();
-//!     let mut server = VirgeServer::with_yamux(config);
-//!     server.listen().await?;
 //!
-//!     while let Ok(mut transport) = server.accept().await {
+//!     // 方法1：简单回显服务器（自动管理连接）
+//!     let manager = ServerManager::new(config);
+//!     manager.run_simple().await?;
+//!
+//!     // 方法2：自定义连接处理器
+//!     let manager = ServerManager::new(config);
+//!     manager.run(|mut server| async move {
+//!         // 处理每个VirgeServer连接的业务逻辑
+//!         let data = server.recv().await?;
+//!         server.send(data).await?;
+//!         server.disconnect().await?;
+//!     }).await?;
+//!
+//!     // 方法3：手动管理连接
+//!     let mut manager = ServerManager::new(config);
+//!     manager.start().await?;
+//!
+//!     while let Ok(mut server) = manager.accept().await {
 //!         tokio::spawn(async move {
-//!             let data = transport.recv().await?;
-//!             transport.send(data).await?;
-//!             transport.disconnect().await?;
+//!             let data = server.recv().await?;
+//!             server.send(data).await?;
+//!             server.disconnect().await?;
 //!             Ok::<(), Box<dyn std::error::Error>>(())
 //!         });
 //!     }
 //! }
 //! ```
 
-// 特性冲突检测
-#[cfg(all(feature = "use-yamux", feature = "use-xtransport"))]
-compile_error!("Features 'use-yamux' and 'use-xtransport' cannot be enabled at the same time. Please choose only one transport protocol.");
 
 // 错误层
 pub mod error;
@@ -64,7 +76,7 @@ pub mod client;
 pub mod server;
 
 pub use client::{VirgeClient, ClientConfig};
-pub use server::{VirgeServer, ServerConfig};
+pub use server::{ServerManager, VirgeServer, ServerConfig};
 
 
 pub const DEFAULT_SERVER_CID: usize = 103;

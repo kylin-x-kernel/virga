@@ -3,34 +3,36 @@
 //! 提供服务器角色的高级 API。
 //!
 //! # 职责
-//! - 封装服务器的监听逻辑
-//! - 处理客户端连接
-//! - 为每个连接创建独立的 Transport 实例
-//! - 管理传输协议选择
+//! - ServerManager: 管理vsock监听和连接接受
+//! - VirgeServer: 单个连接的数据传输，与VirgeClient类似
 //!
 //! # 设计思路
 //! ```text
-//! ┌────────────────────────────────────┐
-//! │ VirgeServer                        │
-//! │ - config: ServerConfig             │
-//! │ - listener: Option<VsockListener>  │
-//! │ - transport_factory: TransportType │
-//! └────────────────────────────────────┘
-//!          │
-//!          ├─ listen()
-//!          ├─ accept() -> Box<dyn Transport>
-//!          └─ stop()
+//! ┌────────────────────────────────────┐    ┌────────────────────────────────────┐
+//! │ ServerManager                      │    │ VirgeServer                       │
+//! │ - config: ServerConfig             │    │ - transport: Box<dyn Transport>  │
+//! │ - listener: Option<Listener>       │    │ - config: ServerConfig           │
+//! │ - running: bool                    │    │ - connected: bool                 │
+//! └────────────────────────────────────┘    └────────────────────────────────────┘
+//!          │                                      │
+//!          ├─ start() -> Result<()>               ├─ send(data)
+//!          ├─ accept() -> VirgeServer             ├─ recv() -> data
+//!          └─ stop()                              └─ disconnect()
 //! ```
 //!
 //! # 使用示例
 //! ```ignore
-//! let mut server = VirgeServer::with_yamux(config);
-//! server.listen().await?;
+//! // 启动服务器管理器
+//! let mut manager = ServerManager::new(config);
+//! manager.start().await?;
 //!
-//! while let Ok(mut transport) = server.accept().await {
+//! // 接受连接
+//! while let Ok(server) = manager.accept().await {
 //!     tokio::spawn(async move {
-//!         let data = transport.recv().await?;
-//!         transport.send(data).await?;
+//!         // 处理连接的数据收发
+//!         let data = server.recv().await?;
+//!         server.send(data).await?;
+//!         server.disconnect().await?;
 //!         Ok::<(), Box<dyn std::error::Error>>(())
 //!     });
 //! }
@@ -41,16 +43,19 @@ use crate::error::Result;
 use crate::transport::Transport;
 
 
+/// 监听器枚举
+enum Listener {
+    #[cfg(feature = "use-yamux")]
+    Yamux(tokio_vsock::VsockListener),
+    #[cfg(feature = "use-xtransport")]
+    XTransport(vsock::VsockListener),
+}
+
 /// 服务器配置
 #[derive(Clone, Debug)]
 pub struct ServerConfig {
-    /// 服务器监听的 CID
     pub listen_cid: u32,
-
-    /// 服务器监听的端口
     pub listen_port: u32,
-
-    /// 最大并发连接数
     pub max_connections: usize,
 }
 
@@ -64,80 +69,47 @@ impl Default for ServerConfig {
     }
 }
 
-
-/// 监听器枚举
-enum Listener {
-    #[cfg(feature = "use-yamux")]
-    Yamux(tokio_vsock::VsockListener),
-    #[cfg(feature = "use-xtransport")]
-    XTransport(vsock::VsockListener),
-}
-
-/// Virga 服务器
-///
-/// 提供基于选定传输协议的高级服务器接口。
-pub struct VirgeServer {
-    /// 服务器配置
+/// 服务器管理器：负责管理vsock监听和连接接受，为每个连接生成VirgeServer实例
+pub struct ServerManager {
     config: ServerConfig,
-
-    /// vsock 监听器
     listener: Option<Listener>,
-
-    /// 监听状态
-    listening: bool,
+    running: bool,
 }
 
-impl VirgeServer {
-    /// 创建新的服务器实例
-    ///
-    /// 根据启用的编译特性自动选择传输协议。
+/// Virga 服务器连接：与VirgeClient类似，负责单个连接的数据传输。
+pub struct VirgeServer {
+    transport: Box<dyn Transport>,
+    connected: bool,
+}
+
+impl ServerManager {
     pub fn new(config: ServerConfig) -> Self {
-        #[cfg(feature = "use-yamux")]
-        return Self::with_yamux(config);
-
-        #[cfg(feature = "use-xtransport")]
-        return Self::with_xtransport(config);
-
-        #[cfg(not(any(feature = "use-yamux", feature = "use-xtransport")))]
-        panic!("Either use-yamux or use-xtransport feature must be enabled");
-    }
-
-    /// 使用 Yamux 创建服务器
-    #[cfg(feature = "use-yamux")]
-    pub fn with_yamux(config: ServerConfig) -> Self {
         Self {
             config,
             listener: None,
-            listening: false,
+            running: false,
         }
     }
 
-    /// 使用 XTransport 创建服务器
-    #[cfg(feature = "use-xtransport")]
-    pub fn with_xtransport(config: ServerConfig) -> Self {
-        Self {
-            config,
-            listener: None,
-            listening: false,
-        }
-    }
-
-    /// 启动监听
-    pub async fn listen(&mut self) -> Result<()> {
+    pub async fn start(&mut self) -> Result<()> {
         info!(
-            "VirgeServer listening on cid={}, port={}",
+            "ServerManager starting on cid={}, port={}",
             self.config.listen_cid,
             self.config.listen_port
         );
 
+        self.listener = Some(self.create_listener().await?);
+        self.running = true;
+        Ok(())
+    }
+
+    async fn create_listener(&self) -> Result<Listener> {
         #[cfg(feature = "use-yamux")]
         {
             let addr = tokio_vsock::VsockAddr::new(self.config.listen_cid, self.config.listen_port);
             let listener = tokio_vsock::VsockListener::bind(addr)
                 .map_err(|e| crate::error::VirgeError::ConnectionError(format!("Failed to bind yamux listener: {}", e)))?;
-            self.listener = Some(Listener::Yamux(listener));
-            self.listening = true;
-            return Ok(());
+            return Ok(Listener::Yamux(listener));
         }
 
         #[cfg(feature = "use-xtransport")]
@@ -145,68 +117,104 @@ impl VirgeServer {
             let addr = vsock::VsockAddr::new(self.config.listen_cid, self.config.listen_port);
             let listener = vsock::VsockListener::bind(&addr)
                 .map_err(|e| crate::error::VirgeError::ConnectionError(format!("Failed to bind xtransport listener: {}", e)))?;
-            self.listener = Some(Listener::XTransport(listener));
-            self.listening = true;
-            return Ok(());
+            return Ok(Listener::XTransport(listener));
         }
+
+        #[cfg(not(any(feature = "use-yamux", feature = "use-xtransport")))]
+        unreachable!("Either use-yamux or use-xtransport feature must be enabled");
     }
 
-    /// 接受新的客户端连接
-    pub async fn accept(&mut self) -> Result<Box<dyn Transport>> {
-        if !self.listening {
+    pub async fn accept(&mut self) -> Result<VirgeServer> {
+        if !self.running {
             return Err(crate::error::VirgeError::Other(
-                "Server not listening".to_string(),
+                "ServerManager not running".to_string(),
             ));
         }
 
-        #[cfg(feature = "use-yamux")]
-        {
-            if let Some(Listener::Yamux(listener)) = &mut self.listener {
-                let (stream, addr) = listener.accept().await
-                    .map_err(|e| crate::error::VirgeError::ConnectionError(format!("Failed to accept yamux connection: {}", e)))?;
-                info!("Accepted yamux connection from {:?}", addr);
+        if let Some(ref mut listener) = self.listener {
+            let transport: Box<dyn Transport> = match listener {
+                #[cfg(feature = "use-yamux")]
+                Listener::Yamux(yamux_listener) => {
+                    let (stream, addr) = yamux_listener.accept().await
+                        .map_err(|e| crate::error::VirgeError::ConnectionError(format!("Failed to accept yamux connection: {}", e)))?;
+                    info!("Accepted yamux connection from {:?}", addr);
 
-                // 创建 YamuxTransport 实例并从流初始化
-                let mut transport = Box::new(crate::transport::YamuxTransport::new_server());
-                transport.from_tokio_stream(stream).await?;
+                    // 创建 YamuxTransport 实例并从流初始化
+                    let mut transport = Box::new(crate::transport::YamuxTransport::new_server());
+                    transport.from_tokio_stream(stream).await?;
+                    transport as Box<dyn Transport>
+                }
 
-                return Ok(transport);
-            } else {
-                return Err(crate::error::VirgeError::Other("Yamux listener not initialized".to_string()));
-            }
-        }
+                #[cfg(feature = "use-xtransport")]
+                Listener::XTransport(xtransport_listener) => {
+                    let (stream, addr) = xtransport_listener.accept()
+                        .map_err(|e| crate::error::VirgeError::ConnectionError(format!("Failed to accept xtransport connection: {}", e)))?;
+                    info!("Accepted xtransport connection from {:?}", addr);
 
-        #[cfg(feature = "use-xtransport")]
-        {
-            if let Some(Listener::XTransport(listener)) = &mut self.listener {
-                let (stream, addr) = listener.accept()
-                    .map_err(|e| crate::error::VirgeError::ConnectionError(format!("Failed to accept xtransport connection: {}", e)))?;
-                info!("Accepted xtransport connection from {:?}", addr);
+                    // 创建 XTransportHandler 实例并从流初始化
+                    let mut transport = Box::new(crate::transport::XTransportHandler::new());
+                    transport.from_stream(stream).await?;
+                    transport as Box<dyn Transport>
+                }
+            };
 
-                // 创建 XTransportHandler 实例并从流初始化
-                let mut transport = Box::new(crate::transport::XTransportHandler::new());
-                transport.from_stream(stream).await?;
-
-                return Ok(transport);
-            } else {
-                return Err(crate::error::VirgeError::Other("XTransport listener not initialized".to_string()));
-            }
+            Ok(VirgeServer {
+                transport,
+                connected: true,
+            })
+        } else {
+            Err(crate::error::VirgeError::Other("Listener not initialized".to_string()))
         }
     }
 
-    /// 停止监听
+    /// 停止服务器
     pub async fn stop(&mut self) -> Result<()> {
-        info!("VirgeServer stopping");
-
-        // 清理监听器
+        info!("ServerManager stopping");
         self.listener = None;
-
-        self.listening = false;
+        self.running = false;
         Ok(())
     }
 
-    /// 检查监听状态
-    pub fn is_listening(&self) -> bool {
-        self.listening
+    pub fn is_running(&self) -> bool {
+        self.running
+    }
+
+}
+
+impl VirgeServer {
+    /// 发送数据
+    pub async fn send(&mut self, data: Vec<u8>) -> Result<()> {
+        if !self.connected {
+            return Err(crate::error::VirgeError::TransportError(
+                "Server not connected".to_string(),
+            ));
+        }
+
+        self.transport.send(data).await
+    }
+
+    /// 接收数据
+    pub async fn recv(&mut self) -> Result<Vec<u8>> {
+        if !self.connected {
+            return Err(crate::error::VirgeError::TransportError(
+                "Server not connected".to_string(),
+            ));
+        }
+        println!("virga::want to recv");
+        self.transport.recv().await
+    }
+
+    /// 断开连接
+    pub async fn disconnect(&mut self) -> Result<()> {
+        if self.connected {
+            self.transport.disconnect().await?;
+            self.connected = false;
+        }
+        Ok(())
+    }
+
+    /// 检查连接状态
+    pub fn is_connected(&self) -> bool {
+        self.connected
     }
 }
