@@ -23,9 +23,9 @@ use futures::future::poll_fn;
 use futures::AsyncReadExt;
 use futures::AsyncWriteExt;
 use std::sync::Arc;
-use tokio::sync::{Mutex, mpsc};
-use tokio_util::compat::TokioAsyncReadCompatExt;
-use tokio_vsock::VsockStream;
+use tokio::sync::Mutex;
+use tokio_util::compat::{TokioAsyncReadCompatExt, Compat};
+use tokio_vsock::{VsockStream, VsockAddr};
 use log::*;
 
 use yamux::{Config, Connection, Mode};
@@ -37,16 +37,9 @@ use yamux::Stream;
 /// 直接管理 tokio-vsock 连接并使用 yamux 进行多路复用。
 /// Yamux需要持续的驱动程序来处理入站流和连接生命周期。
 pub struct YamuxTransport {
-    /// 当前使用的 yamux 虚拟流
     yamux_stream: Option<Stream>,
-
-    /// yamux 连接（使用Arc<Mutex<>>共享给驱动程序）
-    connection: Option<Arc<Mutex<Connection<tokio_util::compat::Compat<VsockStream>>>>>,
-
-    /// 连接驱动任务的handle（用于清理）
+    connection: Option<Arc<Mutex<Connection<Compat<VsockStream>>>>>,
     driver_handle: Option<tokio::task::JoinHandle<()>>,
-
-    /// 是否为服务器模式（影响流创建行为）
     is_server: bool,
 }
 
@@ -80,8 +73,8 @@ impl YamuxTransport {
                     let mut conn_guard = connection_arc.lock().await;
                     let stream = poll_fn(|cx| conn_guard.poll_next_inbound(cx)).await;
                     match stream {
-                        Some(Ok(stream_)) => {
-                            self.yamux_stream = Some(stream_);
+                        Some(Ok(yamux_stream)) => {
+                            self.yamux_stream = Some(yamux_stream);
                         }
                         Some(Err(e)) => {
                             return Err(VirgeError::TransportError(format!("Failed to open yamux stream: {}", e)));
@@ -110,27 +103,22 @@ impl YamuxTransport {
         Ok(self.yamux_stream.as_mut().unwrap())
     }
 
-    /// 启动yamux连接驱动程序
-    ///
-    /// Yamux需要持续的驱动程序来处理：
-    /// - 入站流（poll_next_inbound）
-    /// - 连接生命周期
-    /// - 错误处理
+    /// yamux 连接驱动程序
     fn start_driver(&mut self) {
         if let Some(conn_arc) = self.connection.clone() {
             let driver_handle = tokio::spawn(async move {
-                    info!("Starting yamux client connection driver");
+                    debug!("Starting yamux connection driver");
                     loop {
                         let mut conn_guard = conn_arc.lock().await;
                         match poll_fn(|cx| conn_guard.poll_next_inbound(cx)).await {
                             Some(Ok(_)) => {
                             }
                             Some(Err(e)) => {
-                                error!("Yamux client connection error: {}", e);
+                                debug!("Yamux connection error: {}", e);
                                 break;
                             }
                             None => {
-                                debug!("Yamux client connection closed");
+                                debug!("Yamux connection closed");
                                 break;
                             }
                         }
@@ -146,11 +134,10 @@ impl YamuxTransport {
 
 #[async_trait]
 impl Transport for YamuxTransport {
-    async fn connect(&mut self, cid: u32, port: u32) -> Result<()> {
+    async fn connect(&mut self, cid: u32, port: u32, _: u32, _: bool) -> Result<()> {
         info!("Yamux transport connecting to cid={}, port={}", cid, port);
 
-        // 建立 vsock 连接
-        let stream = VsockStream::connect(tokio_vsock::VsockAddr::new(cid, port))
+        let stream = VsockStream::connect(VsockAddr::new(cid, port))
             .await
             .map_err(|e| VirgeError::ConnectionError(format!("Failed to connect vsock: {}", e)))?;
 
@@ -161,7 +148,9 @@ impl Transport for YamuxTransport {
 
         // 启动驱动程序来处理连接生命周期
         self.start_driver();
-
+        // 创建yamux_stream
+        let _ = self.get_or_create_stream().await?;
+        
         info!("Yamux transport connected successfully");
         Ok(())
     }
@@ -185,7 +174,7 @@ impl Transport for YamuxTransport {
     async fn send(&mut self, data: Vec<u8>) -> Result<()> {
         if !self.is_connected() {
             return Err(VirgeError::TransportError(
-                "Yamux transport not connected".to_string(),
+                "Yamux transport not connected about send".to_string(),
             ));
         }
 
@@ -201,10 +190,9 @@ impl Transport for YamuxTransport {
     async fn recv(&mut self) -> Result<Vec<u8>> {
         if !self.is_connected() {
             return Err(VirgeError::TransportError(
-                "Yamux transport not connected".to_string(),
+                "Yamux transport not connected about recv".to_string(),
             ));
         }
-
         let stream = self.get_or_create_stream().await?;
         let mut buf = Vec::new();
         stream.read_to_end(&mut buf).await
@@ -214,17 +202,20 @@ impl Transport for YamuxTransport {
     }
 
     fn is_connected(&self) -> bool {
-        self.connection.is_some()
+        self.yamux_stream.is_some() && self.connection.is_some()
     }
 
     async fn from_tokio_stream(&mut self, stream: tokio_vsock::VsockStream) -> Result<()> {
-        info!("Yamux transport initializing from existing tokio stream");
-
         // 初始化 yamux
         let config = Config::default();
         let connection = Connection::new(stream.compat(), config, Mode::Server);
 
         self.connection = Some(Arc::new(Mutex::new(connection)));
+        
+        // 启动驱动程序来处理连接生命周期
+        self.start_driver();
+        // 创建yamux_stream
+        let _ = self.get_or_create_stream().await?;
 
         info!("Yamux transport initialized from stream successfully");
         Ok(())

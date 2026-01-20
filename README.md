@@ -16,7 +16,7 @@
 
 ```toml
 [dependencies]
-virga ={ git = "xxxx", default-features = false, features = ["use-xtransport"]}
+virga = { git = "https://github.com/your-repo/virga.git", features = ["use-xtransport"] }
 ```
 
 ## 快速开始
@@ -131,3 +131,45 @@ virga = { version = "0.1.0", features = ["use-xtransport"] }
 [dependencies]
 virga = { version = "0.1.0", features = ["use-yamux"] }
 ```
+
+## 构建
+
+```bash
+# 构建项目（默认启用 XTransport）
+cargo build
+
+# 仅启用 XTransport（包含必要的 tokio 依赖）
+cargo build --no-default-features --features use-xtransport
+
+# 仅启用 Yamux
+cargo build --no-default-features --features use-yamux
+
+# 同时启用两种协议
+cargo build --no-default-features --features "use-xtransport use-yamux"
+```
+
+## 运行示例
+
+```bash
+# 运行客户端示例（使用 XTransport）
+cargo run --example test_client --features use-xtransport --no-default-features
+
+# 运行服务器示例（使用 XTransport）
+cargo run --example test_server --features use-xtransport --no-default-features
+
+# 或者同时启用两种协议运行
+cargo run --example test_client --features "use-xtransport use-yamux"
+cargo run --example test_server --features "use-xtransport use-yamux"
+```
+
+## 文档
+
+生成完整的 API 文档：
+
+```bash
+cargo doc --no-deps --open
+```
+
+## 许可证
+
+本项目采用 MIT 许可证。

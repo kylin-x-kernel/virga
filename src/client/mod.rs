@@ -31,15 +31,21 @@ impl Default for ClientConfig {
     }
 }
 
+impl ClientConfig {
+    pub fn new(cid: u32, port: u32, chunk: u32, isack: bool) -> Self{
+        Self { 
+            server_cid: cid, 
+            server_port: port, 
+            chunk_size: chunk, 
+            is_ack: isack, 
+        }
+    }
+}
+
 /// Virga 客户端：提供基于选定传输协议的高级客户端接口。
 pub struct VirgeClient {
-    /// 传输协议实现
     transport: Box<dyn Transport>,
-    
-    /// 客户端配置
     config: ClientConfig,
-    
-    /// 连接状态
     connected: bool,
 }
 
@@ -91,8 +97,6 @@ impl VirgeClient {
     /// 断开连接
     pub async fn disconnect(&mut self) -> Result<()> {
         info!("VirgeClient disconnecting");
-        
-        // TODO: 调用 transport.disconnect()
         self.transport.disconnect().await?;
         self.connected = false;
         Ok(())

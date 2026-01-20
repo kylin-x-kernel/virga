@@ -40,6 +40,20 @@ impl Default for ServerConfig {
     }
 }
 
+impl ServerConfig {
+    pub fn new(cid: u32, port: u32, chunk: u32, isack: bool) -> Self{
+        Self { 
+            listen_cid: cid, 
+            listen_port: port, 
+            chunk_size: chunk, 
+            is_ack: isack, 
+        }
+    }
+}
+
+
+
+
 /// 服务器管理器：负责管理vsock监听和连接接受，为每个连接生成VirgeServer实例
 pub struct ServerManager {
     config: ServerConfig,
@@ -184,6 +198,6 @@ impl VirgeServer {
 
     /// 检查连接状态
     pub fn is_connected(&self) -> bool {
-        self.connected
+        self.connected && self.transport.is_connected()
     }
 }

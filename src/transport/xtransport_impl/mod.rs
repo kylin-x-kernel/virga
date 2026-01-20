@@ -5,15 +5,6 @@
 //! # 特点
 //! - 针对 vsock 优化的传输协议
 //! - 轻量级设计
-//!
-//! # 结构
-//! ```text
-//! ┌─────────────────────────────────┐
-//! │ XTransportHandler               │
-//! │ - stream: Option<VsockStream>   │
-//! │ - transport: Option<XTransport> │
-//! └─────────────────────────────────┘
-//! ```
 
 use log::*;
 use crate::error::{Result, VirgeError};
@@ -46,7 +37,6 @@ impl Transport for XTransportHandler {
     async fn connect(&mut self, cid: u32, port: u32, chunksize: u32, isack: bool) -> Result<()> {
         info!("XTransport connecting to cid={}, port={}", cid, port);
 
-        // 建立 vsock 连接
         let stream = VsockStream::connect(&VsockAddr::new(cid, port))
             .map_err(|e| VirgeError::ConnectionError(format!("Failed to connect vsock: {}", e)))?;
 
@@ -65,8 +55,7 @@ impl Transport for XTransportHandler {
 
     async fn disconnect(&mut self) -> Result<()> {
         info!("XTransport disconnecting");
-
-        // 清理资源
+        
         self.transport = None;
         if let Some(stream) = &self.stream {
             stream.shutdown(std::net::Shutdown::Both).map_err(
@@ -85,7 +74,7 @@ impl Transport for XTransportHandler {
         transport.send_message(&data)
             .map_err(|e| VirgeError::Other(format!("XTransport send error: {}", e)))?;
 
-        debug!("XTransport sent {} bytes", data.len());
+        info!("XTransport sent {} bytes", data.len());
         Ok(())
     }
 
@@ -96,7 +85,7 @@ impl Transport for XTransportHandler {
         let data = transport.recv_message()
             .map_err(|e| VirgeError::Other(format!("XTransport recv error: {}", e)))?;
 
-        debug!("XTransport received {} bytes", data.len());
+        info!("XTransport received {} bytes", data.len());
         Ok(data)
     }
 
