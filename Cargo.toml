@@ -10,7 +10,7 @@ authors = [
 [features]
 default = ["use-xtransport"]     # 默认启用 xtransport 特性
 use-yamux = ["yamux", "tokio", "tokio-util", "tokio-vsock", "futures"]
-use-xtransport = ["vsock", "xtransport", "tokio"]
+use-xtransport = ["vsock", "xtransport" ]
 
 
 [dependencies]
@@ -28,12 +28,3 @@ futures = { version = "0.3", optional = true }
 # features = xtransport dependencies
 vsock = { version = "0.5", optional = true }
 xtransport = { git = "https://github.com/kylin-x-kernel/xtransfer.git", features = ["std"], optional = true }
-
-
-[[example]]
-name = "test_client"
-path = "example/test_client.rs"
-
-[[example]]
-name = "test_server"
-path = "example/test_server.rs"

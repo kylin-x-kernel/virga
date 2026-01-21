@@ -4,7 +4,7 @@ use virga::server::{ServerManager, ServerConfig};
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
-    let config = ServerConfig::new(vsock::VMADDR_CID_ANY, 1234, 1024, false);
+    let config = ServerConfig::new(0xFFFFFFFF, 1234, 1024, false);
 
     let mut manager = ServerManager::new(config);
     manager.start().await?;
