@@ -23,11 +23,16 @@ use futures::AsyncReadExt;
 use futures::AsyncWriteExt;
 use futures::future::poll_fn;
 use log::*;
+use futures::future::poll_fn;
+use log::*;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio_util::compat::{Compat, TokioAsyncReadCompatExt};
 use tokio_vsock::{VsockAddr, VsockStream};
+use tokio_util::compat::{Compat, TokioAsyncReadCompatExt};
+use tokio_vsock::{VsockAddr, VsockStream};
 
+use yamux::Stream;
 use yamux::Stream;
 use yamux::{Config, Connection, Mode};
 
@@ -80,14 +85,24 @@ impl YamuxTransport {
                                 "Failed to open yamux stream: {}",
                                 e
                             )));
+                            return Err(VirgeError::TransportError(format!(
+                                "Failed to open yamux stream: {}",
+                                e
+                            )));
                         }
                         None => {
+                            return Err(VirgeError::TransportError(
+                                "Failed to open yamux stream".to_string(),
+                            ));
                             return Err(VirgeError::TransportError(
                                 "Failed to open yamux stream".to_string(),
                             ));
                         }
                     }
                 } else {
+                    return Err(VirgeError::TransportError(
+                        "Yamux not initialized".to_string(),
+                    ));
                     return Err(VirgeError::TransportError(
                         "Yamux not initialized".to_string(),
                     ));
@@ -104,9 +119,12 @@ impl YamuxTransport {
                                 e
                             ))
                         })?;
-                    debug!("Client created outbound stream: {:?}", stream.id());
+                    info!("Client created outbound stream: {:?}", stream.id());
                     self.yamux_stream = Some(stream);
                 } else {
+                    return Err(VirgeError::TransportError(
+                        "Yamux not initialized".to_string(),
+                    ));
                     return Err(VirgeError::TransportError(
                         "Yamux not initialized".to_string(),
                     ));
@@ -137,7 +155,7 @@ impl YamuxTransport {
                     }
                     drop(conn_guard);
                 }
-                debug!("Yamux connection driver stopped");
+                info!("Yamux connection driver stopped");
             });
 
             self.driver_handle = Some(driver_handle);
@@ -164,7 +182,7 @@ impl Transport for YamuxTransport {
         // 创建yamux_stream
         let _ = self.get_or_create_stream().await?;
 
-        debug!("Yamux transport connected successfully");
+        info!("Yamux transport connected successfully");
         Ok(())
     }
 
@@ -195,6 +213,9 @@ impl Transport for YamuxTransport {
         stream
             .write_all(&data)
             .await
+        stream
+            .write_all(&data)
+            .await
             .map_err(|e| VirgeError::Other(format!("yamux send error: {}", e)))?;
         stream.close().await?;
 
@@ -213,6 +234,9 @@ impl Transport for YamuxTransport {
         stream
             .read_to_end(&mut buf)
             .await
+        stream
+            .read_to_end(&mut buf)
+            .await
             .map_err(|e| VirgeError::Other(format!("yamux recv error: {}", e)))?;
         debug!("Yamux received {} bytes", buf.len());
         Ok(buf)
@@ -228,6 +252,7 @@ impl Transport for YamuxTransport {
         let connection = Connection::new(stream.compat(), config, Mode::Server);
 
         self.connection = Some(Arc::new(Mutex::new(connection)));
+
 
         // 启动驱动程序来处理连接生命周期
         self.start_driver();
