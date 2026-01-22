@@ -68,7 +68,7 @@ impl XTransportHandler {
             .ok_or_else(|| VirgeError::TransportError("XTransport not connected".to_string()))?;
 
         transport
-            .send_message(&data)
+            .send_message(data)
             .map_err(|e| VirgeError::Other(format!("XTransport send error: {}", e)))?;
 
         debug!("XTransport sent {} bytes", data.len());

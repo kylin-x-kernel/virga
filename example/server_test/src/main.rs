@@ -21,7 +21,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         
         
         // 断开连接
-        server.disconnect()?;
+        // server.disconnect()?;
     }
 
     Ok(())

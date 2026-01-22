@@ -13,9 +13,11 @@ pub mod client_sync;
 #[cfg(feature = "use-xtransport")]
 pub use client_sync::VirgeClient;
 
-// use crate::error::Result;
-// use crate::transport::Transport;
-// use log::*;
+#[cfg(feature = "use-yamux")]
+pub mod client_async;
+#[cfg(feature = "use-yamux")]
+pub use client_async::VirgeClient;
+
 
 
 /// 客户端配置
