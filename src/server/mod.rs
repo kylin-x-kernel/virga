@@ -111,11 +111,24 @@ impl ServerManager {
                 #[cfg(feature = "use-xtransport")]
                 Listener::XTransport(xtransport_listener) => {
                     let (stream, addr) = xtransport_listener.accept()?;
-                    info!("Accepted transport connection from {:?}", addr);
+                    info!("Accepted xtransport connection from {:?}", addr);
 
                     // 创建 XTransportHandler 实例并从流初始化
                     let mut transport = XTransportHandler::new();
-                    transport.from_stream(stream, self.config.chunk_size, self.config.is_ack)?;
+                    transport
+                        .from_stream(stream, self.config.chunk_size, self.config.is_ack)?;
+                    transport
+                }
+
+                #[cfg(feature = "use-yamux")]
+                Listener::Yamux(yamux_listener) => {
+                    let (stream, addr) = yamux_listener.accept().await
+                        .map_err(|e| VirgeError::ConnectionError(format!("Failed to accept yamux connection: {}", e)))?;
+                    info!("Accepted yamux connection from {:?}", addr);
+
+                    // 创建 YamuxTransport 实例并从流初始化
+                    let mut transport = Box::new(crate::transport::YamuxTransport::new_server());
+                    transport.from_tokio_stream(stream).await?;
                     transport
                 }
             };
