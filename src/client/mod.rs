@@ -13,6 +13,11 @@ pub mod client_sync;
 #[cfg(feature = "use-xtransport")]
 pub use client_sync::VirgeClient;
 
+// use crate::error::Result;
+// use crate::transport::Transport;
+// use log::*;
+
+
 /// 客户端配置
 #[derive(Clone, Debug)]
 pub struct ClientConfig {

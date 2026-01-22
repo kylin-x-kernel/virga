@@ -81,6 +81,15 @@ impl ServerManager {
     }
 
     fn create_listener(&self) -> Result<Listener> {
+        #[cfg(feature = "use-yamux")]
+        {
+            let addr = tokio_vsock::VsockAddr::new(self.config.listen_cid, self.config.listen_port);
+            let listener = tokio_vsock::VsockListener::bind(addr).map_err(|e| {
+                VirgeError::ConnectionError(format!("Failed to bind yamux listener: {}", e))
+            })?;
+            return Ok(Listener::Yamux(listener));
+        }
+
         #[cfg(feature = "use-xtransport")]
         {
             let addr = vsock::VsockAddr::new(self.config.listen_cid, self.config.listen_port);
