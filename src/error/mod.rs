@@ -49,17 +49,22 @@ impl From<std::io::Error> for VirgeError {
     }
 }
 
+impl From<VirgeError> for std::io::Error {
+    fn from(err: VirgeError) -> Self {
+        match err {
+            VirgeError::IoError(e) => e,
+            VirgeError::ConnectionError(msg) => std::io::Error::new(std::io::ErrorKind::ConnectionRefused, msg),
+            VirgeError::TransportError(msg) => std::io::Error::new(std::io::ErrorKind::InvalidData, msg),
+            VirgeError::ConfigError(msg) => std::io::Error::new(std::io::ErrorKind::InvalidInput, msg),
+            VirgeError::Other(msg) => std::io::Error::new(std::io::ErrorKind::Other, msg),
+        }
+    }
+}
+
 #[cfg(feature = "use-xtransport")]
 impl From<xtransport::Error> for VirgeError {
     fn from(err: xtransport::Error) -> Self {
         VirgeError::Other(format!("XTransport error: {}", err))
-    }
-}
-
-#[cfg(feature = "use-yamux")]
-impl From<yamux::ConnectionError> for VirgeError {
-    fn from(err: yamux::ConnectionError) -> Self {
-        VirgeError::Other(format!("Yamux error: {}", err))
     }
 }
 

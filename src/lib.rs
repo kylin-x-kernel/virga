@@ -63,6 +63,9 @@
 //! }
 //! ```
 
+#[cfg(all(feature = "use-xtransport", feature = "use-yamux"))]
+compile_error!("feature1 and feature2 cannot be enabled at the same time");
+
 // 错误层
 pub mod error;
 pub use error::{Result, VirgeError};

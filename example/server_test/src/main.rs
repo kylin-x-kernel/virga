@@ -1,23 +1,22 @@
+use std::thread;
 use virga::server::{ServerManager, ServerConfig};
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     let config = ServerConfig::new(0xFFFFFFFF, 1234, 1024, false);
 
     let mut manager = ServerManager::new(config);
-    manager.start().await?;
+    manager.start()?;
 
-    while let Ok(mut server) = manager.accept().await {
+    if let Ok(mut server) = manager.accept() {
         println!("there is a new virgeserver");
-        tokio::spawn(async move {
+        let handle = thread::spawn(move ||  {
             // 处理接收数据
             if server.is_connected(){
                 println!("after get virga server, the server is connected");
             }
-            let data_result = server.recv().await;
-            println!("server.recv");
+            let data_result = server.recv();
             let data = match data_result {
                 Ok(data) => data,
                 Err(e) => {
@@ -28,15 +27,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("len date = {}", data.len());
             
             // 处理发送数据
-            if let Err(e) = server.send(data).await {
+            if let Err(e) = server.send(data) {
                 eprintln!("发送数据失败: {}", e);
             }
             
             // 处理断开连接
-            if let Err(e) = server.disconnect().await {
+            if let Err(e) = server.disconnect() {
                 eprintln!("断开连接失败: {}", e);
             }
         });
+        handle.join().unwrap();
     }
 
     Ok(())
