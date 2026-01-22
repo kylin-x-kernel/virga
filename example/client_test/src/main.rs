@@ -28,7 +28,7 @@ fn test_1(client: &mut VirgeClient) -> Result<(), Box<dyn std::error::Error>> {
 
     // 处理接收数据, 先接收数据长度，然后创建一个足够长的databuf，最后接收数据
     let mut buf = [0u8; 8];
-    client.read(&mut buf)?;
+    client.read_exact(&mut buf)?;
     let data_len = usize::from_be_bytes(buf);
 
     let mut data = vec![0; data_len];
