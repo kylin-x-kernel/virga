@@ -63,10 +63,12 @@
 //! }
 //! ```
 
+#[cfg(all(feature = "use-xtransport", feature = "use-yamux"))]
+compile_error!("feature1 and feature2 cannot be enabled at the same time");
 
 // 错误层
 pub mod error;
-pub use error::{VirgeError, Result};
+pub use error::{Result, VirgeError};
 
 // 协议层
 pub mod transport;
@@ -75,8 +77,8 @@ pub mod transport;
 pub mod client;
 pub mod server;
 
-pub use client::{VirgeClient, ClientConfig};
-pub use server::{ServerManager, VirgeServer, ServerConfig};
+pub use client::{ClientConfig, VirgeClient};
+pub use server::{ServerConfig, ServerManager, VirgeServer};
 
 pub const KIB: usize = 1024;
 pub const MIB: usize = KIB * 1024;
@@ -89,4 +91,12 @@ pub const DEFAULT_SERVER_PORT: usize = 1234;
 pub const DEAFULT_CHUNK_SIZE: usize = KIB;
 pub const DEFAULT_IS_ACK: bool = false;
 
-
+#[derive(PartialEq)]
+enum ReadState {
+    Idle, // 空闲，等待新消息
+    Reading {
+        // 正在读取消息
+        total: usize, // 消息总长度
+        read: usize,  // 已读取长度
+    },
+}
