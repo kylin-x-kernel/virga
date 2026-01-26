@@ -30,7 +30,7 @@ impl XTransportHandler {
 
 impl XTransportHandler {
     pub fn connect(&mut self, cid: u32, port: u32, chunksize: u32, isack: bool) -> Result<()> {
-        info!("XTransport connecting to cid={}, port={}", cid, port);
+        debug!("XTransport connecting to cid={}, port={}", cid, port);
 
         let stream = VsockStream::connect(&VsockAddr::new(cid, port))
             .map_err(|e| VirgeError::ConnectionError(format!("Failed to connect vsock: {}", e)))?;
@@ -43,12 +43,12 @@ impl XTransportHandler {
         self.stream = Some(stream);
         self.transport = Some(transport);
 
-        info!("XTransport connected successfully");
+        debug!("XTransport connected successfully");
         Ok(())
     }
 
     pub fn disconnect(&mut self) -> Result<()> {
-        info!("XTransport disconnecting");
+        debug!("XTransport disconnecting");
 
         self.transport = None;
         if let Some(stream) = &self.stream {
@@ -57,7 +57,7 @@ impl XTransportHandler {
             })?;
         }
 
-        info!("XTransport disconnected");
+        debug!("XTransport disconnected");
         Ok(())
     }
 
@@ -71,7 +71,7 @@ impl XTransportHandler {
             .send_message(&data)
             .map_err(|e| VirgeError::Other(format!("XTransport send error: {}", e)))?;
 
-        info!("XTransport sent {} bytes", data.len());
+        debug!("XTransport sent {} bytes", data.len());
         Ok(data.len())
     }
 
@@ -85,7 +85,7 @@ impl XTransportHandler {
             .recv_message()
             .map_err(|e| VirgeError::Other(format!("XTransport recv error: {}", e)))?;
 
-        info!("XTransport received {} bytes", data.len());
+        debug!("XTransport received {} bytes", data.len());
         Ok(data)
     }
 
@@ -94,7 +94,7 @@ impl XTransportHandler {
     }
 
     pub fn from_stream(&mut self, stream: VsockStream, chunksize: u32, isack: bool) -> Result<()> {
-        info!("XTransport initializing from existing stream");
+        debug!("XTransport initializing from existing stream");
 
         let config = TransportConfig::default()
             .with_max_frame_size(chunksize as usize)
@@ -104,7 +104,7 @@ impl XTransportHandler {
         self.stream = Some(stream);
         self.transport = Some(transport);
 
-        info!("XTransport initialized from stream successfully");
+        debug!("XTransport initialized from stream successfully");
         Ok(())
     }
 }

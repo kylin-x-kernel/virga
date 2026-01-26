@@ -104,7 +104,7 @@ impl YamuxTransport {
                                 e
                             ))
                         })?;
-                    info!("Client created outbound stream: {:?}", stream.id());
+                    debug!("Client created outbound stream: {:?}", stream.id());
                     self.yamux_stream = Some(stream);
                 } else {
                     return Err(VirgeError::TransportError(
@@ -137,7 +137,7 @@ impl YamuxTransport {
                     }
                     drop(conn_guard);
                 }
-                info!("Yamux connection driver stopped");
+                debug!("Yamux connection driver stopped");
             });
 
             self.driver_handle = Some(driver_handle);
@@ -148,7 +148,7 @@ impl YamuxTransport {
 #[async_trait]
 impl Transport for YamuxTransport {
     async fn connect(&mut self, cid: u32, port: u32, _: u32, _: bool) -> Result<()> {
-        info!("Yamux transport connecting to cid={}, port={}", cid, port);
+        debug!("Yamux transport connecting to cid={}, port={}", cid, port);
 
         let stream = VsockStream::connect(VsockAddr::new(cid, port))
             .await
@@ -164,12 +164,12 @@ impl Transport for YamuxTransport {
         // 创建yamux_stream
         let _ = self.get_or_create_stream().await?;
 
-        info!("Yamux transport connected successfully");
+        debug!("Yamux transport connected successfully");
         Ok(())
     }
 
     async fn disconnect(&mut self) -> Result<()> {
-        info!("Yamux transport disconnecting");
+        debug!("Yamux transport disconnecting");
 
         // 清理驱动程序
         if let Some(handle) = self.driver_handle.take() {
@@ -180,7 +180,7 @@ impl Transport for YamuxTransport {
         self.connection = None;
         self.yamux_stream = None;
 
-        info!("Yamux transport disconnected");
+        debug!("Yamux transport disconnected");
         Ok(())
     }
 
@@ -198,7 +198,7 @@ impl Transport for YamuxTransport {
             .map_err(|e| VirgeError::Other(format!("yamux send error: {}", e)))?;
         stream.close().await?;
 
-        info!("Yamux sent {} bytes", data.len());
+        debug!("Yamux sent {} bytes", data.len());
         Ok(())
     }
 
@@ -214,7 +214,7 @@ impl Transport for YamuxTransport {
             .read_to_end(&mut buf)
             .await
             .map_err(|e| VirgeError::Other(format!("yamux recv error: {}", e)))?;
-        info!("Yamux received {} bytes", buf.len());
+        debug!("Yamux received {} bytes", buf.len());
         Ok(buf)
     }
 
@@ -234,7 +234,7 @@ impl Transport for YamuxTransport {
         // 创建yamux_stream
         let _ = self.get_or_create_stream().await?;
 
-        info!("Yamux transport initialized from stream successfully");
+        debug!("Yamux transport initialized from stream successfully");
         Ok(())
     }
 }

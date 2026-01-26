@@ -102,7 +102,7 @@ impl ServerManager {
                 #[cfg(feature = "use-xtransport")]
                 Listener::XTransport(xtransport_listener) => {
                     let (stream, addr) = xtransport_listener.accept()?;
-                    info!("Accepted xtransport connection from {:?}", addr);
+                    info!("Accepted transport connection from {:?}", addr);
 
                     // 创建 XTransportHandler 实例并从流初始化
                     let mut transport = XTransportHandler::new();
