@@ -26,9 +26,9 @@ compile_error!("feature1 and feature2 cannot be enabled at the same time");
 pub mod error;
 pub use error::{Result, VirgeError};
 
-pub mod transport;
 pub mod client;
 pub mod server;
+pub mod transport;
 
 pub use client::{ClientConfig, VirgeClient};
 pub use server::{ServerConfig, ServerManager, VirgeServer};
@@ -47,8 +47,5 @@ pub const DEFAULT_IS_ACK: bool = false;
 #[derive(PartialEq)]
 enum ReadState {
     Idle,
-    Reading {
-        total: usize,
-        read: usize,
-    },
+    Reading { total: usize, read: usize },
 }

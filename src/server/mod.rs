@@ -7,15 +7,14 @@ pub use crate::transport::XTransportHandler;
 #[cfg(feature = "use-xtransport")]
 pub use server_sync::VirgeServer;
 
-
 #[cfg(feature = "use-yamux")]
 pub mod server_async;
-#[cfg(feature = "use-yamux")]
-pub use server_async::VirgeServer;
 #[cfg(feature = "use-yamux")]
 pub use crate::transport::YamuxTransportHandler;
 #[cfg(feature = "use-yamux")]
 use crate::transport::get_runtime;
+#[cfg(feature = "use-yamux")]
+pub use server_async::VirgeServer;
 
 use log::*;
 use std::io::{Error, ErrorKind, Result};
@@ -92,9 +91,8 @@ impl ServerManager {
         #[cfg(feature = "use-yamux")]
         {
             let addr = tokio_vsock::VsockAddr::new(self.config.listen_cid, self.config.listen_port);
-            let listener = get_runtime().block_on(async {
-                tokio_vsock::VsockListener::bind(addr)
-            })?;
+            let listener =
+                get_runtime().block_on(async { tokio_vsock::VsockListener::bind(addr) })?;
             return Ok(Listener::Yamux(listener));
         }
 
@@ -122,28 +120,25 @@ impl ServerManager {
 
                 // 创建 XTransportHandler 实例并从流初始化
                 let mut transport = XTransportHandler::new();
+                transport.from_stream(stream, self.config.chunk_size, self.config.is_ack)?;
                 transport
-                    .from_stream(stream, self.config.chunk_size, self.config.is_ack)?;
-                transport
-            },
+            }
             #[cfg(feature = "use-yamux")]
-            Some( Listener::Yamux(yamux_listener)) => {
-                let (stream, addr) = get_runtime().block_on(async {
-                    yamux_listener.accept().await
-                })?;
+            Some(Listener::Yamux(yamux_listener)) => {
+                let (stream, addr) =
+                    get_runtime().block_on(async { yamux_listener.accept().await })?;
                 info!("Accepted yamux connection from {:?}", addr);
                 // 创建 YamuxTransport 实例并从流初始化
                 let mut transport = YamuxTransportHandler::new(yamux::Mode::Server);
                 transport.from_tokio_stream(stream)?;
                 transport
-            },
+            }
             None => {
                 return Err(Error::other(format!("Listener not initialized")));
             }
         };
 
         Ok(VirgeServer::new(transport, true))
-
     }
 
     /// 停止服务器

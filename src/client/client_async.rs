@@ -1,5 +1,5 @@
-use std::io::{Read, Write};
 use std::io::{Error, ErrorKind, Result};
+use std::io::{Read, Write};
 
 use log::*;
 
@@ -34,17 +34,16 @@ impl VirgeClient {
             self.config.server_cid, self.config.server_port
         );
 
-        self.transport_handler
-            .connect(
-                self.config.server_cid,
-                self.config.server_port,
-                self.config.chunk_size,
-                self.config.is_ack,
-            )?;
+        self.transport_handler.connect(
+            self.config.server_cid,
+            self.config.server_port,
+            self.config.chunk_size,
+            self.config.is_ack,
+        )?;
         self.connected = true;
         Ok(())
     }
-   
+
     /// 断开连接
     pub fn disconnect(&mut self) -> Result<()> {
         info!("VirgeClient disconnecting");
@@ -71,28 +70,28 @@ impl VirgeClient {
     pub fn send(&mut self, data: Vec<u8>) -> Result<usize> {
         if !self.connected {
             return Err(Error::new(
-                ErrorKind::NotConnected, 
+                ErrorKind::NotConnected,
                 format!("Client not connected"),
-                )
-            );
+            ));
         }
 
-        self.transport_handler.send(&data)
-        .map_err(|e| Error::other(format!("send error: {}", e)))
+        self.transport_handler
+            .send(&data)
+            .map_err(|e| Error::other(format!("send error: {}", e)))
     }
-    
+
     /// 接收数据
     pub fn recv(&mut self) -> Result<Vec<u8>> {
         if !self.connected {
             return Err(Error::new(
-                ErrorKind::NotConnected, 
+                ErrorKind::NotConnected,
                 format!("Client not connected"),
-                )
-            );
+            ));
         }
 
-        self.transport_handler.recv()
-        .map_err(|e| Error::other(format!("recv error: {}", e)))
+        self.transport_handler
+            .recv()
+            .map_err(|e| Error::other(format!("recv error: {}", e)))
     }
 
     /// 检查连接状态
@@ -133,16 +132,11 @@ impl VirgeClient {
 impl Read for VirgeClient {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
         if !self.connected {
-            return Err(Error::new(
-                ErrorKind::NotConnected,
-                "Client not connected",
-            ));
+            return Err(Error::new(ErrorKind::NotConnected, "Client not connected"));
         }
 
         match self.read_state {
-            ReadState::Idle => {
-                self.read_new_message(buf)
-            }
+            ReadState::Idle => self.read_new_message(buf),
             ReadState::Reading { total, read, .. } => {
                 if !self.read_buffer.is_empty() {
                     let len = std::cmp::min(self.read_buffer.len(), buf.len());
@@ -171,18 +165,12 @@ impl Read for VirgeClient {
 impl Write for VirgeClient {
     fn write(&mut self, buf: &[u8]) -> Result<usize> {
         if !self.connected {
-            return Err(Error::new(
-                ErrorKind::NotConnected,
-                "Client not connected",
-            ));
+            return Err(Error::new(ErrorKind::NotConnected, "Client not connected"));
         }
 
         match self.transport_handler.send(buf) {
             Ok(len) => Ok(len),
-            Err(e) => Err(Error::new(
-                ErrorKind::Other,
-                format!("Write error: {}", e),
-            )),
+            Err(e) => Err(Error::new(ErrorKind::Other, format!("Write error: {}", e))),
         }
     }
 
@@ -190,5 +178,3 @@ impl Write for VirgeClient {
         Ok(())
     }
 }
-
-

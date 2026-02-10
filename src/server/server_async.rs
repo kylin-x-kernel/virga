@@ -1,5 +1,5 @@
-use std::io::{Read, Write};
 use std::io::{Error, ErrorKind, Result};
+use std::io::{Read, Write};
 
 use log::*;
 
@@ -29,25 +29,21 @@ impl VirgeServer {
     /// 发送数据
     pub fn send(&mut self, data: Vec<u8>) -> Result<usize> {
         if !self.connected {
-            return Err(Error::new(
-                ErrorKind::NotConnected,
-                "Server not connected",
-            ));
+            return Err(Error::new(ErrorKind::NotConnected, "Server not connected"));
         }
-        self.transport_handler.send(&data)
-        .map_err(|e| Error::other(format!("send error: {}", e)))
+        self.transport_handler
+            .send(&data)
+            .map_err(|e| Error::other(format!("send error: {}", e)))
     }
 
     /// 接收数据
     pub fn recv(&mut self) -> Result<Vec<u8>> {
         if !self.connected {
-            return Err(Error::new(
-                ErrorKind::NotConnected,
-                "Server not connected",
-            ));
+            return Err(Error::new(ErrorKind::NotConnected, "Server not connected"));
         }
-        self.transport_handler.recv()
-        .map_err(|e| Error::other(format!("recv error: {}", e)))
+        self.transport_handler
+            .recv()
+            .map_err(|e| Error::other(format!("recv error: {}", e)))
     }
 
     /// 断开连接
@@ -112,16 +108,11 @@ impl VirgeServer {
 impl Read for VirgeServer {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
         if !self.connected {
-            return Err(Error::new(
-                ErrorKind::NotConnected,
-                "Server not connected",
-            ));
+            return Err(Error::new(ErrorKind::NotConnected, "Server not connected"));
         }
 
         match self.read_state {
-            ReadState::Idle => {
-                self.read_new_message(buf)
-            }
+            ReadState::Idle => self.read_new_message(buf),
             ReadState::Reading { total, read, .. } => {
                 if !self.read_buffer.is_empty() {
                     let len = std::cmp::min(self.read_buffer.len(), buf.len());
@@ -150,18 +141,12 @@ impl Read for VirgeServer {
 impl Write for VirgeServer {
     fn write(&mut self, buf: &[u8]) -> Result<usize> {
         if !self.connected {
-            return Err(Error::new(
-                ErrorKind::NotConnected,
-                "Server not connected",
-            ));
+            return Err(Error::new(ErrorKind::NotConnected, "Server not connected"));
         }
 
         match self.transport_handler.send(buf) {
             Ok(len) => Ok(len),
-            Err(e) => Err(Error::new(
-                ErrorKind::Other,
-                format!("Write error: {}", e),
-            )),
+            Err(e) => Err(Error::new(ErrorKind::Other, format!("Write error: {}", e))),
         }
     }
 
@@ -169,5 +154,3 @@ impl Write for VirgeServer {
         Ok(())
     }
 }
-
-

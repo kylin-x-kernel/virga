@@ -1,9 +1,9 @@
 use std::sync::OnceLock;
 
 use crate::error::{Result, VirgeError};
-use futures::future::poll_fn;
 use futures::AsyncReadExt;
 use futures::AsyncWriteExt;
+use futures::future::poll_fn;
 use log::*;
 use tokio::runtime::Runtime;
 use tokio::task::JoinHandle;
@@ -17,9 +17,7 @@ use yamux::{Config, Connection, Mode};
 static TOKIO_RT: OnceLock<Runtime> = OnceLock::new();
 
 pub fn get_runtime() -> &'static Runtime {
-    TOKIO_RT.get_or_init(|| {
-        Runtime::new().expect("Failed to create tokio runtime for yamux")
-    })
+    TOKIO_RT.get_or_init(|| Runtime::new().expect("Failed to create tokio runtime for yamux"))
 }
 
 /// Yamux 传输协议处理器
@@ -49,9 +47,7 @@ impl YamuxTransportHandler {
 
         let vsock_stream = get_runtime()
             .block_on(async { VsockStream::connect(VsockAddr::new(cid, port)).await })
-            .map_err(|e| {
-                VirgeError::ConnectionError(format!("Failed to connect vsock: {}", e))
-            })?;
+            .map_err(|e| VirgeError::ConnectionError(format!("Failed to connect vsock: {}", e)))?;
 
         let config = Config::default();
         let mut connection = Connection::new(vsock_stream.compat(), config, Mode::Client);
@@ -59,14 +55,9 @@ impl YamuxTransportHandler {
 
         // 获取 outbound stream
         let stream = get_runtime()
-            .block_on(async {
-                poll_fn(|cx| connection.poll_new_outbound(cx)).await
-            })
+            .block_on(async { poll_fn(|cx| connection.poll_new_outbound(cx)).await })
             .map_err(|e| {
-                VirgeError::TransportError(format!(
-                    "Failed to open yamux outbound stream: {}",
-                    e
-                ))
+                VirgeError::TransportError(format!("Failed to open yamux outbound stream: {}", e))
             })?;
         self.yamux_stream = Some(stream);
 
@@ -101,9 +92,8 @@ impl YamuxTransportHandler {
         self.mode = Mode::Server;
 
         // 等待客户端打开的 inbound stream
-        let stream_result = get_runtime().block_on(async {
-            poll_fn(|cx| connection.poll_next_inbound(cx)).await
-        });
+        let stream_result =
+            get_runtime().block_on(async { poll_fn(|cx| connection.poll_next_inbound(cx)).await });
 
         match stream_result {
             Some(Ok(s)) => {
