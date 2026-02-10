@@ -12,13 +12,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Ok(mut server) = manager.accept() {
         println!("there is a new virgeserver");
 
-        test_1(&mut server)?;
-        test_2(&mut server)?;
-        
-
-
-        
-        
+        // test_1(&mut server)?;
+        // test_2(&mut server)?;
+        test_3(&mut server)?;
         
         // 断开连接
         // server.disconnect()?;
@@ -27,6 +23,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+fn test_3(server: &mut VirgeServer) -> Result<(), Box<dyn std::error::Error>> {
+    let recvdata = server.recv()?;
+    println!("recvdata len = {}", recvdata.len());
+    
+    let sendlen = server.send(recvdata)?;
+    println!("sendlen = {}", sendlen);
+
+    Ok(())
+}
 
 fn test_1(server: &mut VirgeServer) -> Result<(), Box<dyn std::error::Error>> {
     // 处理接收数据, 先接收数据长度，然后创建一个足够长的databuf，最后接收数据

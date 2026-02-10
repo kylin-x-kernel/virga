@@ -3,18 +3,30 @@ use std::io::{Read, Write};
 use virga::client::{VirgeClient, ClientConfig};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
     
-    let config = ClientConfig::new(2, 1234, 1024, false);
+    let config = ClientConfig::new(103, 1234, 1024, false);
     let mut client = VirgeClient::new(config);
     client.connect()?;
 
-    test_1(&mut client)?;
-    test_2(&mut client)?;
+    // test_1(&mut client)?;
+    // test_2(&mut client)?;
+    test_3(&mut client)?;
     
     
     // 断开连接
     client.disconnect()?;
+
+    Ok(())
+}
+
+fn test_3(client: &mut VirgeClient) -> Result<(), Box<dyn std::error::Error>> {
+    let data = vec![1; 512];
+    let sendlen = client.send(data)?;
+
+    let recvdata = client.recv()?;
+    assert_eq!(sendlen, recvdata.len());
+    assert_eq!(recvdata, vec![1; 512]);
 
     Ok(())
 }

@@ -18,6 +18,8 @@ pub use xtransport_impl::XTransportHandler;
 mod yamux_impl;
 #[cfg(feature = "use-yamux")]
 pub use yamux_impl::YamuxTransportHandler;
+#[cfg(feature = "use-yamux")]
+pub use yamux_impl::get_runtime;
 
 
 
