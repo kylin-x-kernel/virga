@@ -6,7 +6,7 @@ use log::*;
 use crate::ReadState;
 use crate::transport::YamuxTransportHandler;
 
-/// Virga 服务器连接：与VirgeClient类似，负责单个连接的数据传输。
+/// Virga 服务器连接
 pub struct VirgeServer {
     transport_handler: YamuxTransportHandler,
     connected: bool,

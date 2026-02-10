@@ -1,12 +1,5 @@
 
 //! 客户端模块
-//!
-//! 提供客户端角色的高级 API。
-//!
-//! # 职责
-//! - 封装客户端的连接逻辑
-//! - 提供简洁的发送/接收接口
-//! - 管理传输协议选择
 
 #[cfg(feature = "use-xtransport")]
 pub mod client_sync;
@@ -17,8 +10,6 @@ pub use client_sync::VirgeClient;
 pub mod client_async;
 #[cfg(feature = "use-yamux")]
 pub use client_async::VirgeClient;
-
-
 
 /// 客户端配置
 #[derive(Clone, Debug)]

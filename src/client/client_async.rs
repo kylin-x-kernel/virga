@@ -7,8 +7,7 @@ use super::ClientConfig;
 use crate::ReadState;
 use crate::transport::YamuxTransportHandler;
 
-
-/// Yamux 客户端（对外同步接口，内部通过全局 tokio runtime 驱动 yamux 异步操作）
+/// Yamux 客户端（同步接口，内部通过 tokio runtime 驱动 yamux）
 pub struct VirgeClient {
     transport_handler: YamuxTransportHandler,
     config: ClientConfig,

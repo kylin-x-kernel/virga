@@ -1,10 +1,4 @@
 //! 服务器模块
-//!
-//! 提供服务器角色的高级 API。
-//!
-//! # 职责
-//! - ServerManager: 管理vsock监听和连接接受
-//! - VirgeServer: 单个连接的数据传输，与VirgeClient类似
 
 #[cfg(feature = "use-xtransport")]
 pub mod server_sync;
@@ -39,7 +33,9 @@ enum Listener {
 pub struct ServerConfig {
     listen_cid: u32,
     listen_port: u32,
+    #[allow(dead_code)]
     chunk_size: u32,
+    #[allow(dead_code)]
     is_ack: bool,
 }
 
@@ -65,7 +61,7 @@ impl ServerConfig {
     }
 }
 
-/// 服务器管理器：负责管理vsock监听和连接接受，为每个连接生成VirgeServer实例
+/// 服务器管理器：管理 vsock 监听和连接接受
 pub struct ServerManager {
     config: ServerConfig,
     listener: Option<Listener>,
