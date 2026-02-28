@@ -1,11 +1,23 @@
 [package]
 name = "virga"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 authors = [
     "Huangshijia <shijia727@outlook.com>",
 ]
 license = "Apache-2.0"
+
+[workspace]
+members = ["xtransport"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+authors = [
+    "Debin <luodeb@outlook.com>",
+    "Huangshijia <shijia727@outlook.com>",
+]
 
 
 [features]
@@ -27,4 +39,4 @@ futures = { version = "0.3", optional = true }
 
 # features = xtransport dependencies
 vsock = { version = "0.5", optional = true }
-xtransport = { git = "https://github.com/kylin-x-kernel/xtransfer.git", features = ["std"], optional = true }
+xtransport = { path = "xtransport", features = ["std"], optional = true }
