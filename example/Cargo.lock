@@ -360,7 +360,6 @@ dependencies = [
 [[package]]
 name = "xtransport"
 version = "0.1.0"
-source = "git+https://github.com/kylin-x-kernel/xtransfer.git#e6d1ffea6da648d153008388f82b355a29ca9177"
 dependencies = [
  "crc32fast",
  "log",
