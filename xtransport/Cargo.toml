@@ -1,9 +1,12 @@
 [package]
 name = "xtransport"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-authors.workspace = true
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+authors = [
+    "Debin <luodeb@outlook.com>",
+    "Huangshijia <shijia727@outlook.com>",
+]
 description = "A no_std compatible reliable transport protocol with fragmentation, retransmission, reordering and CRC32 checksum"
 
 [features]
