@@ -1,10 +1,4 @@
 //! 服务器模块
-//!
-//! 提供服务器角色的高级 API。
-//!
-//! # 职责
-//! - ServerManager: 管理vsock监听和连接接受
-//! - VirgeServer: 单个连接的数据传输，与VirgeClient类似
 
 #[cfg(feature = "use-xtransport")]
 pub mod server_sync;
@@ -13,6 +7,15 @@ pub use crate::transport::XTransportHandler;
 #[cfg(feature = "use-xtransport")]
 pub use server_sync::VirgeServer;
 
+#[cfg(feature = "use-yamux")]
+pub mod server_async;
+#[cfg(feature = "use-yamux")]
+pub use crate::transport::YamuxTransportHandler;
+#[cfg(feature = "use-yamux")]
+use crate::transport::get_runtime;
+#[cfg(feature = "use-yamux")]
+pub use server_async::VirgeServer;
+
 use log::*;
 use std::io::{Error, ErrorKind, Result};
 
@@ -20,6 +23,8 @@ use std::io::{Error, ErrorKind, Result};
 enum Listener {
     #[cfg(feature = "use-xtransport")]
     XTransport(vsock::VsockListener),
+    #[cfg(feature = "use-yamux")]
+    Yamux(tokio_vsock::VsockListener),
 }
 
 /// 服务器配置
@@ -27,7 +32,9 @@ enum Listener {
 pub struct ServerConfig {
     listen_cid: u32,
     listen_port: u32,
+    #[allow(dead_code)]
     chunk_size: u32,
+    #[allow(dead_code)]
     is_ack: bool,
 }
 
@@ -53,7 +60,7 @@ impl ServerConfig {
     }
 }
 
-/// 服务器管理器：负责管理vsock监听和连接接受，为每个连接生成VirgeServer实例
+/// 服务器管理器：管理 vsock 监听和连接接受
 pub struct ServerManager {
     config: ServerConfig,
     listener: Option<Listener>,
@@ -81,6 +88,14 @@ impl ServerManager {
     }
 
     fn create_listener(&self) -> Result<Listener> {
+        #[cfg(feature = "use-yamux")]
+        {
+            let addr = tokio_vsock::VsockAddr::new(self.config.listen_cid, self.config.listen_port);
+            let listener =
+                get_runtime().block_on(async { tokio_vsock::VsockListener::bind(addr) })?;
+            return Ok(Listener::Yamux(listener));
+        }
+
         #[cfg(feature = "use-xtransport")]
         {
             let addr = vsock::VsockAddr::new(self.config.listen_cid, self.config.listen_port);
@@ -97,24 +112,33 @@ impl ServerManager {
             ));
         }
 
-        if let Some(ref mut listener) = self.listener {
-            let transport = match listener {
-                #[cfg(feature = "use-xtransport")]
-                Listener::XTransport(xtransport_listener) => {
-                    let (stream, addr) = xtransport_listener.accept()?;
-                    info!("Accepted transport connection from {:?}", addr);
+        let transport = match &self.listener {
+            #[cfg(feature = "use-xtransport")]
+            Some(Listener::XTransport(xtransport_listener)) => {
+                let (stream, addr) = xtransport_listener.accept()?;
+                info!("Accepted xtransport connection from {:?}", addr);
 
-                    // 创建 XTransportHandler 实例并从流初始化
-                    let mut transport = XTransportHandler::new();
-                    transport.from_stream(stream, self.config.chunk_size, self.config.is_ack)?;
-                    transport
-                }
-            };
+                // 创建 XTransportHandler 实例并从流初始化
+                let mut transport = XTransportHandler::new();
+                transport.from_stream(stream, self.config.chunk_size, self.config.is_ack)?;
+                transport
+            }
+            #[cfg(feature = "use-yamux")]
+            Some(Listener::Yamux(yamux_listener)) => {
+                let (stream, addr) =
+                    get_runtime().block_on(async { yamux_listener.accept().await })?;
+                info!("Accepted yamux connection from {:?}", addr);
+                // 创建 YamuxTransport 实例并从流初始化
+                let mut transport = YamuxTransportHandler::new(yamux::Mode::Server);
+                transport.from_tokio_stream(stream)?;
+                transport
+            }
+            None => {
+                return Err(Error::other(format!("Listener not initialized")));
+            }
+        };
 
-            Ok(VirgeServer::new(transport, true))
-        } else {
-            Err(Error::other(format!("Listener not initialized")))
-        }
+        Ok(VirgeServer::new(transport, true))
     }
 
     /// 停止服务器
