@@ -5,19 +5,18 @@ pub trait Read {
     
     fn read_exact(&mut self, mut buf: &mut [u8]) -> Result<()> {
         while !buf.is_empty() {
-            match self.read(buf) {
-                Ok(0) => break,
-                Ok(n) => {
-                    let tmp = buf;
-                    buf = &mut tmp[n..];
-                }
-                Err(e) => return Err(e),
+            let n = self.read(buf)?;
+            if n == 0 {
+                break;
             }
+            let tmp = buf;
+            buf = &mut tmp[n..];
         }
-        if !buf.is_empty() {
-            Err(Error::new(crate::error::ErrorKind::UnexpectedEof))
-        } else {
+        
+        if buf.is_empty() {
             Ok(())
+        } else {
+            Err(Error::new(crate::error::ErrorKind::UnexpectedEof))
         }
     }
 }
@@ -28,13 +27,11 @@ pub trait Write {
     
     fn write_all(&mut self, mut buf: &[u8]) -> Result<()> {
         while !buf.is_empty() {
-            match self.write(buf) {
-                Ok(0) => {
-                    return Err(Error::new(crate::error::ErrorKind::WriteZero));
-                }
-                Ok(n) => buf = &buf[n..],
-                Err(e) => return Err(e),
+            let n = self.write(buf)?;
+            if n == 0 {
+                return Err(Error::new(crate::error::ErrorKind::WriteZero));
             }
+            buf = &buf[n..];
         }
         Ok(())
     }
