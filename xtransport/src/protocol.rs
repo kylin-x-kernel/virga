@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2025 KylinSoft Co., Ltd. <https://www.kylinos.cn/>
+// See LICENSES for license details.
+
 use crate::{Error, error::ErrorKind, Result};
 use crate::config::{MAGIC, VERSION, HEADER_SIZE, MESSAGE_HEAD_SIZE};
 use alloc::vec::Vec;

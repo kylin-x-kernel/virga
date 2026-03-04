@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2025 KylinSoft Co., Ltd. <https://www.kylinos.cn/>
+// See LICENSES for license details.
+
 use core::fmt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -19,7 +23,7 @@ pub struct Error {
 
 impl Error {
     pub fn new(kind: ErrorKind) -> Self {
-        Error { kind }
+        Self { kind }
     }
 
     pub fn kind(&self) -> ErrorKind {
@@ -29,16 +33,17 @@ impl Error {
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.kind {
-            ErrorKind::InvalidMagic => write!(f, "Invalid magic number"),
-            ErrorKind::InvalidVersion => write!(f, "Invalid protocol version"),
-            ErrorKind::CrcMismatch => write!(f, "CRC checksum mismatch"),
-            ErrorKind::UnexpectedEof => write!(f, "Unexpected end of file"),
-            ErrorKind::InvalidPacket => write!(f, "Invalid packet"),
-            ErrorKind::WriteZero => write!(f, "Write zero bytes"),
-            ErrorKind::Interrupted => write!(f, "Operation interrupted"),
-            ErrorKind::Other => write!(f, "Other error"),
-        }
+        let msg = match self.kind {
+            ErrorKind::UnexpectedEof => "Unexpected end of file",
+            ErrorKind::WriteZero => "Write zero bytes",
+            ErrorKind::InvalidMagic => "Invalid magic number",
+            ErrorKind::CrcMismatch => "CRC checksum mismatch",
+            ErrorKind::InvalidPacket => "Invalid packet",
+            ErrorKind::InvalidVersion => "Invalid protocol version",
+            ErrorKind::Interrupted => "Operation interrupted",
+            ErrorKind::Other => "Other error",
+        };
+        f.write_str(msg)
     }
 }
 

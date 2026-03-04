@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2025 KylinSoft Co., Ltd. <https://www.kylinos.cn/>
+// See LICENSES for license details.
+
 //! 错误定义模块
 //!
 //! 统一定义库中所有的错误类型，使用 `thiserror` 或自定义 enum。
