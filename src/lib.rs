@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2025 KylinSoft Co., Ltd. <https://www.kylinos.cn/>
+// See LICENSES for license details.
+
 //! Virga: 基于 vsock 的传输库
 //!
 //! 支持 Yamux 和 XTransport 协议，提供同步 API。

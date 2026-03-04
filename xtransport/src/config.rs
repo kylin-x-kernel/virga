@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2025 KylinSoft Co., Ltd. <https://www.kylinos.cn/>
+// See LICENSES for license details.
+
 // Protocol constants
 pub const MAGIC: u32 = 0x58545250; // "XTRP"
 pub const VERSION: u8 = 0x01;

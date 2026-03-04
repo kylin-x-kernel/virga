@@ -2,9 +2,7 @@
 name = "virga"
 version = "0.1.0"
 edition = "2021"
-authors = [
-    "Huangshijia <shijia727@outlook.com>",
-]
+authors = ["KylinSoft Co., Ltd. <https://www.kylinos.cn/>"]
 license = "Apache-2.0"
 
 
