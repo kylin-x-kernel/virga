@@ -298,3 +298,418 @@ impl<T: Read + Write> Write for XTransport<T> {
         self.inner.flush()
     }
 }
+
+#[cfg(all(test, feature = "std"))]
+mod tests {
+    use super::*;
+    use crate::config::TransportConfig;
+    use std::io::Cursor;
+
+    /// Helper: send a message through one XTransport, then recv on another
+    /// both backed by the same byte buffer.
+    fn roundtrip_message(data: &[u8], max_frame_size: usize) -> Vec<u8> {
+        let mut buf: Vec<u8> = Vec::new();
+
+        // Sender side: write to buf
+        {
+            let cursor = Cursor::new(&mut buf);
+            let config = TransportConfig::default().with_max_frame_size(max_frame_size);
+            let mut sender = XTransport::new(cursor, config);
+            sender.send_message(data).unwrap();
+        }
+
+        // Receiver side: read from buf
+        {
+            let cursor = Cursor::new(buf);
+            let config = TransportConfig::default().with_max_frame_size(max_frame_size);
+            let mut receiver = XTransport::new(cursor, config);
+            receiver.recv_message().unwrap()
+        }
+    }
+
+    #[test]
+    fn send_recv_small_message() {
+        let data = vec![1, 2, 3, 4, 5];
+        let received = roundtrip_message(&data, 4096);
+        assert_eq!(received, data);
+    }
+
+    #[test]
+    fn send_recv_empty_message() {
+        let data = vec![];
+        let received = roundtrip_message(&data, 4096);
+        assert_eq!(received, data);
+    }
+
+    #[test]
+    fn send_recv_exact_payload_size() {
+        let data = vec![0xAB; 1024];
+        let received = roundtrip_message(&data, 1040);
+        assert_eq!(received, data);
+    }
+
+    #[test]
+    fn send_recv_large_message_fragmented() {
+        let data: Vec<u8> = (0..5000).map(|i| (i % 256) as u8).collect();
+        let received = roundtrip_message(&data, 1024);
+        assert_eq!(received, data);
+    }
+
+    #[test]
+    fn send_recv_large_message_exact_multiple() {
+        let payload_size = 100 - 16;
+        let data = vec![0x55; payload_size * 10];
+        let received = roundtrip_message(&data, 100);
+        assert_eq!(received, data);
+    }
+
+    #[test]
+    fn send_recv_large_message_not_exact_multiple() {
+        let payload_size = 100 - 16;
+        let data = vec![0x55; payload_size * 10 + 1];
+        let received = roundtrip_message(&data, 100);
+        assert_eq!(received, data);
+    }
+
+    #[test]
+    fn send_recv_one_byte() {
+        let data = vec![42];
+        let received = roundtrip_message(&data, 4096);
+        assert_eq!(received, data);
+    }
+
+    #[test]
+    fn send_recv_multiple_messages_sequential() {
+        let mut buf: Vec<u8> = Vec::new();
+        let messages = vec![
+            vec![1, 2, 3],
+            vec![4, 5, 6, 7, 8],
+            vec![9],
+        ];
+
+        {
+            let cursor = Cursor::new(&mut buf);
+            let config = TransportConfig::default().with_max_frame_size(4096);
+            let mut sender = XTransport::new(cursor, config);
+            for msg in &messages {
+                sender.send_message(msg).unwrap();
+            }
+        }
+
+        {
+            let cursor = Cursor::new(buf);
+            let config = TransportConfig::default().with_max_frame_size(4096);
+            let mut receiver = XTransport::new(cursor, config);
+            for expected in &messages {
+                let received = receiver.recv_message().unwrap();
+                assert_eq!(&received, expected);
+            }
+        }
+    }
+
+    #[test]
+    fn send_recv_with_ack_mode() {
+        let (c2s_reader, c2s_writer) = std::io::pipe().unwrap();
+        let (s2c_reader, s2c_writer) = std::io::pipe().unwrap();
+
+        let data = vec![0xAB; 512];
+        let data_clone = data.clone();
+
+        let sender_handle = std::thread::spawn(move || {
+            let duplex = DuplexStream {
+                reader: s2c_reader,
+                writer: c2s_writer,
+            };
+            let config = TransportConfig::default()
+                .with_max_frame_size(4096)
+                .with_ack(true);
+            let mut sender = XTransport::new(duplex, config);
+            sender.send_message(&data_clone).unwrap();
+        });
+
+        let duplex = DuplexStream {
+            reader: c2s_reader,
+            writer: s2c_writer,
+        };
+        let config = TransportConfig::default()
+            .with_max_frame_size(4096)
+            .with_ack(true);
+        let mut receiver = XTransport::new(duplex, config);
+        let received = receiver.recv_message().unwrap();
+
+        sender_handle.join().unwrap();
+        assert_eq!(received, data);
+    }
+
+    #[test]
+    fn send_recv_large_with_ack_mode() {
+        let (c2s_reader, c2s_writer) = std::io::pipe().unwrap();
+        let (s2c_reader, s2c_writer) = std::io::pipe().unwrap();
+
+        let data: Vec<u8> = (0..3000).map(|i| (i % 256) as u8).collect();
+        let data_clone = data.clone();
+
+        let sender_handle = std::thread::spawn(move || {
+            let duplex = DuplexStream {
+                reader: s2c_reader,
+                writer: c2s_writer,
+            };
+            let config = TransportConfig::default()
+                .with_max_frame_size(256)
+                .with_ack(true);
+            let mut sender = XTransport::new(duplex, config);
+            sender.send_message(&data_clone).unwrap();
+        });
+
+        let duplex = DuplexStream {
+            reader: c2s_reader,
+            writer: s2c_writer,
+        };
+        let config = TransportConfig::default()
+            .with_max_frame_size(256)
+            .with_ack(true);
+        let mut receiver = XTransport::new(duplex, config);
+        let received = receiver.recv_message().unwrap();
+
+        sender_handle.join().unwrap();
+        assert_eq!(received, data);
+    }
+
+    #[test]
+    fn recv_message_truncated_header() {
+        let buf = vec![0u8; 8];
+        let cursor = Cursor::new(buf);
+        let config = TransportConfig::default();
+        let mut receiver = XTransport::new(cursor, config);
+        let result = receiver.recv_message();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn recv_message_invalid_magic() {
+        let mut buf = vec![0u8; 32];
+        buf[0..4].copy_from_slice(&0xDEADBEEFu32.to_le_bytes());
+        let cursor = Cursor::new(buf);
+        let config = TransportConfig::default();
+        let mut receiver = XTransport::new(cursor, config);
+        let result = receiver.recv_message();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn transport_read_write_trait() {
+        let mut buf: Vec<u8> = Vec::new();
+        let write_data = vec![10, 20, 30, 40, 50];
+
+        {
+            let cursor = Cursor::new(&mut buf);
+            let config = TransportConfig::default().with_max_frame_size(4096);
+            let mut transport = XTransport::new(cursor, config);
+            let written = Write::write(&mut transport, &write_data).unwrap();
+            assert_eq!(written, write_data.len());
+            Write::flush(&mut transport).unwrap();
+        }
+
+        {
+            let cursor = Cursor::new(buf);
+            let config = TransportConfig::default().with_max_frame_size(4096);
+            let mut transport = XTransport::new(cursor, config);
+            let mut read_buf = vec![0u8; 5];
+            let n = Read::read(&mut transport, &mut read_buf).unwrap();
+            assert_eq!(n, 5);
+            assert_eq!(&read_buf[..n], &write_data);
+        }
+    }
+
+    #[test]
+    fn transport_write_empty() {
+        let mut buf: Vec<u8> = Vec::new();
+        let cursor = Cursor::new(&mut buf);
+        let config = TransportConfig::default();
+        let mut transport = XTransport::new(cursor, config);
+        let written = Write::write(&mut transport, &[]).unwrap();
+        assert_eq!(written, 0);
+    }
+
+    #[test]
+    fn transport_write_large_chunk_truncated() {
+        let mut buf: Vec<u8> = Vec::new();
+        let config = TransportConfig::default().with_max_frame_size(100);
+        let cursor = Cursor::new(&mut buf);
+        let mut transport = XTransport::new(cursor, config);
+
+        let data = vec![0xCC; 200];
+        let written = Write::write(&mut transport, &data).unwrap();
+        assert_eq!(written, 84);
+    }
+
+    // Helper: duplex stream combining separate reader and writer.
+    struct DuplexStream<R, W> {
+        reader: R,
+        writer: W,
+    }
+
+    impl<R: std::io::Read, W: std::io::Write> std::io::Read for DuplexStream<R, W> {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            self.reader.read(buf)
+        }
+    }
+
+    impl<R: std::io::Read, W: std::io::Write> std::io::Write for DuplexStream<R, W> {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.writer.write(buf)
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            self.writer.flush()
+        }
+    }
+
+    /// Helper: build a raw packet into bytes (header + data)
+    fn build_raw_packet(pkt_type: PacketType, seq: u32, data: &[u8]) -> Vec<u8> {
+        let packet = Packet::new(pkt_type, seq, data.to_vec());
+        let header_bytes = packet.header.to_bytes();
+        let mut buf = Vec::with_capacity(header_bytes.len() + packet.data.len());
+        buf.extend_from_slice(&header_bytes);
+        buf.extend_from_slice(&packet.data);
+        buf
+    }
+
+    /// Helper: build a raw packet with corrupted CRC
+    fn build_corrupted_packet(pkt_type: PacketType, seq: u32, data: &[u8]) -> Vec<u8> {
+        let mut packet = Packet::new(pkt_type, seq, data.to_vec());
+        packet.header.crc32 ^= 0xFFFFFFFF; // corrupt CRC
+        let header_bytes = packet.header.to_bytes();
+        let mut buf = Vec::with_capacity(header_bytes.len() + packet.data.len());
+        buf.extend_from_slice(&header_bytes);
+        buf.extend_from_slice(&packet.data);
+        buf
+    }
+
+    #[test]
+    fn recv_message_corrupted_crc_data_packet() {
+        let buf = build_corrupted_packet(PacketType::Data, 0, &[1, 2, 3]);
+        let cursor = Cursor::new(buf);
+        let config = TransportConfig::default();
+        let mut receiver = XTransport::new(cursor, config);
+        let result = receiver.recv_message();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn recv_message_unexpected_message_data_type() {
+        // Sending MessageData as first packet should fail
+        let buf = build_raw_packet(PacketType::MessageData, 0, &[1, 2, 3]);
+        let cursor = Cursor::new(buf);
+        let config = TransportConfig::default();
+        let mut receiver = XTransport::new(cursor, config);
+        let result = receiver.recv_message();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn recv_message_unexpected_ack_type() {
+        // Sending Ack as first packet should fail
+        let ack_data = 0u32.to_le_bytes().to_vec();
+        let buf = build_raw_packet(PacketType::Ack, 0, &ack_data);
+        let cursor = Cursor::new(buf);
+        let config = TransportConfig::default();
+        let mut receiver = XTransport::new(cursor, config);
+        let result = receiver.recv_message();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn recv_message_corrupted_crc_message_head() {
+        // Build a corrupted MessageHead packet
+        let head = MessageHead::new(100, 1, 2);
+        let buf = build_corrupted_packet(PacketType::MessageHead, 0, &head.to_bytes());
+        let cursor = Cursor::new(buf);
+        let config = TransportConfig::default();
+        let mut receiver = XTransport::new(cursor, config);
+        let result = receiver.recv_message();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn recv_message_too_small_message_head() {
+        // MessageHead with data smaller than MESSAGE_HEAD_SIZE
+        let small_data = vec![0u8; 4]; // too small for MessageHead (needs 32 bytes)
+        let buf = build_raw_packet(PacketType::MessageHead, 0, &small_data);
+        let cursor = Cursor::new(buf);
+        let config = TransportConfig::default();
+        let mut receiver = XTransport::new(cursor, config);
+        let result = receiver.recv_message();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn recv_message_wrong_data_packet_type_in_sequence() {
+        // Valid MessageHead followed by a Data packet instead of MessageData
+        let head = MessageHead::new(5, 1, 1);
+        let mut buf = build_raw_packet(PacketType::MessageHead, 0, &head.to_bytes());
+        // Append a Data packet (wrong type, should be MessageData)
+        buf.extend_from_slice(&build_raw_packet(PacketType::Data, 1, &[1, 2, 3, 4, 5]));
+
+        let cursor = Cursor::new(buf);
+        let config = TransportConfig::default();
+        let mut receiver = XTransport::new(cursor, config);
+        let result = receiver.recv_message();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn recv_message_corrupted_crc_in_data_sequence() {
+        // Valid MessageHead followed by corrupted MessageData
+        let head = MessageHead::new(5, 1, 1);
+        let mut buf = build_raw_packet(PacketType::MessageHead, 0, &head.to_bytes());
+        buf.extend_from_slice(&build_corrupted_packet(PacketType::MessageData, 1, &[1, 2, 3, 4, 5]));
+
+        let cursor = Cursor::new(buf);
+        let config = TransportConfig::default();
+        let mut receiver = XTransport::new(cursor, config);
+        let result = receiver.recv_message();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn recv_packet_internal_crc_mismatch() {
+        // Build a corrupted raw packet and try to receive via recv_packet
+        let mut packet = Packet::new(PacketType::Data, 0, vec![1, 2, 3]);
+        packet.header.crc32 ^= 1; // corrupt CRC
+        let header_bytes = packet.header.to_bytes();
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&header_bytes);
+        buf.extend_from_slice(&packet.data);
+
+        let cursor = Cursor::new(buf);
+        let config = TransportConfig::default();
+        let mut transport = XTransport::new(cursor, config);
+        // Use crate::io::Read trait which internally calls recv_packet -> recv_packet_internal
+        let mut read_buf = [0u8; 10];
+        let result = crate::io::Read::read(&mut transport, &mut read_buf);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn recv_message_with_invalid_packet_type_byte() {
+        // Construct a header with invalid packet type (e.g., 255)
+        let mut header = PacketHeader::new(PacketType::Data, 0, 3);
+        header.pkt_type = 255; // invalid type
+        // Compute CRC for the data
+        let data = vec![1, 2, 3];
+        let mut hasher = crc32fast::Hasher::new();
+        hasher.update(&data);
+        header.crc32 = hasher.finalize();
+
+        let header_bytes = header.to_bytes();
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&header_bytes);
+        buf.extend_from_slice(&data);
+
+        let cursor = Cursor::new(buf);
+        let config = TransportConfig::default();
+        let mut receiver = XTransport::new(cursor, config);
+        let result = receiver.recv_message();
+        assert!(result.is_err());
+    }
+}

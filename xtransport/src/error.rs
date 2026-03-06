@@ -64,3 +64,144 @@ impl From<Error> for std::io::Error {
 }
 
 pub type Result<T> = core::result::Result<T, Error>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::format;
+
+    #[test]
+    fn error_kind_values() {
+        let kinds = [
+            ErrorKind::InvalidMagic,
+            ErrorKind::InvalidVersion,
+            ErrorKind::CrcMismatch,
+            ErrorKind::UnexpectedEof,
+            ErrorKind::InvalidPacket,
+            ErrorKind::WriteZero,
+            ErrorKind::Interrupted,
+            ErrorKind::Other,
+        ];
+        for i in 0..kinds.len() {
+            for j in (i + 1)..kinds.len() {
+                assert_ne!(kinds[i], kinds[j]);
+            }
+        }
+    }
+
+    #[test]
+    fn error_new_and_kind() {
+        let err = Error::new(ErrorKind::CrcMismatch);
+        assert_eq!(err.kind(), ErrorKind::CrcMismatch);
+    }
+
+    #[test]
+    fn error_display_invalid_magic() {
+        let err = Error::new(ErrorKind::InvalidMagic);
+        assert_eq!(format!("{}", err), "Invalid magic number");
+    }
+
+    #[test]
+    fn error_display_invalid_version() {
+        let err = Error::new(ErrorKind::InvalidVersion);
+        assert_eq!(format!("{}", err), "Invalid protocol version");
+    }
+
+    #[test]
+    fn error_display_crc_mismatch() {
+        let err = Error::new(ErrorKind::CrcMismatch);
+        assert_eq!(format!("{}", err), "CRC checksum mismatch");
+    }
+
+    #[test]
+    fn error_display_unexpected_eof() {
+        let err = Error::new(ErrorKind::UnexpectedEof);
+        assert_eq!(format!("{}", err), "Unexpected end of file");
+    }
+
+    #[test]
+    fn error_display_invalid_packet() {
+        let err = Error::new(ErrorKind::InvalidPacket);
+        assert_eq!(format!("{}", err), "Invalid packet");
+    }
+
+    #[test]
+    fn error_display_write_zero() {
+        let err = Error::new(ErrorKind::WriteZero);
+        assert_eq!(format!("{}", err), "Write zero bytes");
+    }
+
+    #[test]
+    fn error_display_interrupted() {
+        let err = Error::new(ErrorKind::Interrupted);
+        assert_eq!(format!("{}", err), "Operation interrupted");
+    }
+
+    #[test]
+    fn error_display_other() {
+        let err = Error::new(ErrorKind::Other);
+        assert_eq!(format!("{}", err), "Other error");
+    }
+
+    #[test]
+    fn error_debug_format() {
+        let err = Error::new(ErrorKind::CrcMismatch);
+        let debug_str = format!("{:?}", err);
+        assert!(debug_str.contains("CrcMismatch"));
+    }
+
+    #[test]
+    fn error_kind_clone() {
+        let kind = ErrorKind::InvalidMagic;
+        let cloned = kind;
+        assert_eq!(kind, cloned);
+    }
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn error_to_io_error_unexpected_eof() {
+        let err = Error::new(ErrorKind::UnexpectedEof);
+        let io_err: std::io::Error = err.into();
+        assert_eq!(io_err.kind(), std::io::ErrorKind::UnexpectedEof);
+    }
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn error_to_io_error_write_zero() {
+        let err = Error::new(ErrorKind::WriteZero);
+        let io_err: std::io::Error = err.into();
+        assert_eq!(io_err.kind(), std::io::ErrorKind::WriteZero);
+    }
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn error_to_io_error_interrupted() {
+        let err = Error::new(ErrorKind::Interrupted);
+        let io_err: std::io::Error = err.into();
+        assert_eq!(io_err.kind(), std::io::ErrorKind::Interrupted);
+    }
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn error_to_io_error_other_kinds() {
+        let other_kinds = [
+            ErrorKind::InvalidMagic,
+            ErrorKind::InvalidVersion,
+            ErrorKind::CrcMismatch,
+            ErrorKind::InvalidPacket,
+            ErrorKind::Other,
+        ];
+        for kind in other_kinds {
+            let err = Error::new(kind);
+            let io_err: std::io::Error = err.into();
+            assert_eq!(io_err.kind(), std::io::ErrorKind::Other);
+        }
+    }
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn error_implements_std_error() {
+        let err = Error::new(ErrorKind::Other);
+        let _: &dyn std::error::Error = &err;
+    }
+}

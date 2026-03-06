@@ -157,3 +157,141 @@ impl ServerManager {
         self.running
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn server_config_default_values() {
+        let config = ServerConfig::default();
+        assert_eq!(config.listen_cid, crate::VMADDR_CID_ANY as u32);
+        assert_eq!(config.listen_port, crate::DEFAULT_SERVER_PORT as u32);
+        assert_eq!(config.chunk_size, crate::DEAFULT_CHUNK_SIZE as u32);
+        assert_eq!(config.is_ack, crate::DEFAULT_IS_ACK);
+    }
+
+    #[test]
+    fn server_config_new_values() {
+        let config = ServerConfig::new(100, 9999, 4096, true);
+        assert_eq!(config.listen_cid, 100);
+        assert_eq!(config.listen_port, 9999);
+        assert_eq!(config.chunk_size, 4096);
+        assert!(config.is_ack);
+    }
+
+    #[test]
+    fn server_config_new_zero() {
+        let config = ServerConfig::new(0, 0, 0, false);
+        assert_eq!(config.listen_cid, 0);
+        assert_eq!(config.listen_port, 0);
+        assert_eq!(config.chunk_size, 0);
+        assert!(!config.is_ack);
+    }
+
+    #[test]
+    fn server_config_new_max() {
+        let config = ServerConfig::new(u32::MAX, u32::MAX, u32::MAX, true);
+        assert_eq!(config.listen_cid, u32::MAX);
+        assert_eq!(config.listen_port, u32::MAX);
+        assert_eq!(config.chunk_size, u32::MAX);
+    }
+
+    #[test]
+    fn server_config_clone_preserves_fields() {
+        let config = ServerConfig::new(100, 1234, 512, true);
+        let cloned = config.clone();
+        assert_eq!(config.listen_cid, cloned.listen_cid);
+        assert_eq!(config.listen_port, cloned.listen_port);
+        assert_eq!(config.chunk_size, cloned.chunk_size);
+        assert_eq!(config.is_ack, cloned.is_ack);
+    }
+
+    #[test]
+    fn server_manager_new_initial_state() {
+        let config = ServerConfig::default();
+        let manager = ServerManager::new(config);
+        assert!(!manager.is_running());
+        assert!(manager.listener.is_none());
+    }
+
+    #[test]
+    fn server_manager_accept_before_start_fails() {
+        let config = ServerConfig::default();
+        let mut manager = ServerManager::new(config);
+        let result = manager.accept();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn server_manager_stop_when_not_started() {
+        let config = ServerConfig::default();
+        let mut manager = ServerManager::new(config);
+        let result = manager.stop();
+        assert!(result.is_ok());
+        assert!(!manager.is_running());
+    }
+
+    #[test]
+    fn server_manager_stop_clears_listener() {
+        let config = ServerConfig::default();
+        let mut manager = ServerManager::new(config);
+        // Stop should clear listener and running flag
+        manager.stop().unwrap();
+        assert!(manager.listener.is_none());
+        assert!(!manager.is_running());
+    }
+
+    #[test]
+    fn server_manager_accept_error_message() {
+        let config = ServerConfig::default();
+        let mut manager = ServerManager::new(config);
+        let result = manager.accept();
+        assert!(result.is_err());
+        let err = result.err().unwrap();
+        assert_eq!(err.kind(), ErrorKind::Other);
+        assert!(err.to_string().contains("not running"));
+    }
+
+    #[test]
+    fn server_config_is_ack_false_default() {
+        let config = ServerConfig::default();
+        assert!(!config.is_ack);
+    }
+
+    #[test]
+    fn server_config_different_values() {
+        let c1 = ServerConfig::new(1, 2, 3, false);
+        let c2 = ServerConfig::new(4, 5, 6, true);
+        assert_ne!(c1.listen_cid, c2.listen_cid);
+        assert_ne!(c1.listen_port, c2.listen_port);
+        assert_ne!(c1.chunk_size, c2.chunk_size);
+        assert_ne!(c1.is_ack, c2.is_ack);
+    }
+
+    #[test]
+    fn server_manager_is_running_false_initially() {
+        let config = ServerConfig::new(0, 0, 0, false);
+        let manager = ServerManager::new(config);
+        assert!(!manager.is_running());
+    }
+
+    #[test]
+    fn server_manager_multiple_stops() {
+        let config = ServerConfig::default();
+        let mut manager = ServerManager::new(config);
+        assert!(manager.stop().is_ok());
+        assert!(manager.stop().is_ok());
+        assert!(!manager.is_running());
+    }
+
+    #[test]
+    fn server_config_debug_contains_fields() {
+        let config = ServerConfig::new(42, 1234, 512, true);
+        let debug_str = format!("{:?}", config);
+        assert!(debug_str.contains("42"));
+        assert!(debug_str.contains("1234"));
+        assert!(debug_str.contains("512"));
+        assert!(debug_str.contains("true"));
+    }
+}

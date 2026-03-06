@@ -112,3 +112,51 @@ impl XTransportHandler {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_handler_not_connected() {
+        let handler = XTransportHandler::new();
+        assert!(!handler.is_connected());
+        assert!(handler.stream.is_none());
+        assert!(handler.transport.is_none());
+    }
+
+    #[test]
+    fn send_without_connection_fails() {
+        let mut handler = XTransportHandler::new();
+        let result = handler.send(&[1, 2, 3]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn recv_without_connection_fails() {
+        let mut handler = XTransportHandler::new();
+        let result = handler.recv();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn disconnect_without_connection_ok() {
+        let mut handler = XTransportHandler::new();
+        // No stream to shutdown, transport is None
+        let result = handler.disconnect();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn is_connected_false_when_no_stream() {
+        let handler = XTransportHandler::new();
+        assert!(!handler.is_connected());
+    }
+
+    #[test]
+    fn send_empty_without_connection_fails() {
+        let mut handler = XTransportHandler::new();
+        let result = handler.send(&[]);
+        assert!(result.is_err());
+    }
+}
