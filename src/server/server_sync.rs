@@ -2,8 +2,8 @@
 // Copyright 2025 KylinSoft Co., Ltd. <https://www.kylinos.cn/>
 // See LICENSES for license details.
 
-use crate::ReadState;
 use crate::transport::XTransportHandler;
+use crate::ReadState;
 use log::*;
 use std::io::{Error, ErrorKind, Result};
 use std::io::{Read, Write};
@@ -159,5 +159,100 @@ impl Write for VirgeServer {
 
     fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::transport::XTransportHandler;
+    use std::io::{Read, Write};
+
+    fn make_disconnected_server() -> VirgeServer {
+        let handler = XTransportHandler::new();
+        VirgeServer::new(handler, false)
+    }
+
+    #[test]
+    fn new_server_not_connected() {
+        let server = make_disconnected_server();
+        assert!(!server.connected);
+        assert!(!server.is_connected());
+    }
+
+    #[test]
+    fn new_server_empty_buffer() {
+        let server = make_disconnected_server();
+        assert!(server.read_buffer.is_empty());
+        assert_eq!(server.read_state, ReadState::Idle);
+    }
+
+    #[test]
+    fn no_has_data_initially_true() {
+        let server = make_disconnected_server();
+        assert!(server.no_has_data());
+    }
+
+    #[test]
+    fn send_when_not_connected_fails() {
+        let mut server = make_disconnected_server();
+        let result = server.send(vec![1, 2, 3]);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::NotConnected);
+    }
+
+    #[test]
+    fn recv_when_not_connected_fails() {
+        let mut server = make_disconnected_server();
+        let result = server.recv();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::NotConnected);
+    }
+
+    #[test]
+    fn read_when_not_connected_fails() {
+        let mut server = make_disconnected_server();
+        let mut buf = [0u8; 10];
+        let result = server.read(&mut buf);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::NotConnected);
+    }
+
+    #[test]
+    fn write_when_not_connected_fails() {
+        let mut server = make_disconnected_server();
+        let result = server.write(&[1, 2, 3]);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::NotConnected);
+    }
+
+    #[test]
+    fn flush_always_ok() {
+        let mut server = make_disconnected_server();
+        assert!(server.flush().is_ok());
+    }
+
+    #[test]
+    fn new_server_connected_true() {
+        let handler = XTransportHandler::new();
+        let server = VirgeServer::new(handler, true);
+        // connected flag is true but transport_handler not connected
+        assert!(server.connected);
+        // is_connected checks both flags
+        assert!(!server.is_connected());
+    }
+
+    #[test]
+    fn disconnect_empty_buffer_ok() {
+        let handler = XTransportHandler::new();
+        let mut server = VirgeServer::new(handler, true);
+        // disconnect with empty buffer should succeed
+        let result = server.disconnect();
+        assert!(result.is_ok());
+        assert!(!server.connected);
     }
 }

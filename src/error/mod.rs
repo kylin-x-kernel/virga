@@ -80,3 +80,114 @@ impl From<xtransport::Error> for VirgeError {
 
 /// 操作结果类型别名
 pub type Result<T> = std::result::Result<T, VirgeError>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn display_connection_error() {
+        let err = VirgeError::ConnectionError("timeout".to_string());
+        assert_eq!(format!("{}", err), "Connection error: timeout");
+    }
+
+    #[test]
+    fn display_transport_error() {
+        let err = VirgeError::TransportError("decode failed".to_string());
+        assert_eq!(format!("{}", err), "Transport error: decode failed");
+    }
+
+    #[test]
+    fn display_config_error() {
+        let err = VirgeError::ConfigError("invalid port".to_string());
+        assert_eq!(format!("{}", err), "Config error: invalid port");
+    }
+
+    #[test]
+    fn display_io_error() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::BrokenPipe, "pipe broken");
+        let err = VirgeError::IoError(io_err);
+        assert!(format!("{}", err).contains("IO error:"));
+        assert!(format!("{}", err).contains("pipe broken"));
+    }
+
+    #[test]
+    fn display_other_error() {
+        let err = VirgeError::Other("something".to_string());
+        assert_eq!(format!("{}", err), "Error: something");
+    }
+
+    #[test]
+    fn from_io_error() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "not found");
+        let virge_err: VirgeError = io_err.into();
+        match virge_err {
+            VirgeError::IoError(_) => {} // expected
+            _ => panic!("Expected IoError variant"),
+        }
+    }
+
+    #[test]
+    fn into_io_error_from_io_error() {
+        let original = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "denied");
+        let kind = original.kind();
+        let virge_err = VirgeError::IoError(original);
+        let io_err: std::io::Error = virge_err.into();
+        assert_eq!(io_err.kind(), kind);
+    }
+
+    #[test]
+    fn into_io_error_connection_error() {
+        let err = VirgeError::ConnectionError("refused".to_string());
+        let io_err: std::io::Error = err.into();
+        assert_eq!(io_err.kind(), std::io::ErrorKind::ConnectionRefused);
+    }
+
+    #[test]
+    fn into_io_error_transport_error() {
+        let err = VirgeError::TransportError("bad data".to_string());
+        let io_err: std::io::Error = err.into();
+        assert_eq!(io_err.kind(), std::io::ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn into_io_error_config_error() {
+        let err = VirgeError::ConfigError("invalid".to_string());
+        let io_err: std::io::Error = err.into();
+        assert_eq!(io_err.kind(), std::io::ErrorKind::InvalidInput);
+    }
+
+    #[test]
+    fn into_io_error_other() {
+        let err = VirgeError::Other("misc".to_string());
+        let io_err: std::io::Error = err.into();
+        assert_eq!(io_err.kind(), std::io::ErrorKind::Other);
+    }
+
+    #[test]
+    fn error_debug_format() {
+        let err = VirgeError::ConnectionError("test".to_string());
+        let debug = format!("{:?}", err);
+        assert!(debug.contains("ConnectionError"));
+        assert!(debug.contains("test"));
+    }
+
+    #[test]
+    fn error_implements_std_error() {
+        let err = VirgeError::Other("test".to_string());
+        let _: &dyn std::error::Error = &err;
+    }
+
+    #[cfg(feature = "use-xtransport")]
+    #[test]
+    fn from_xtransport_error() {
+        let xt_err = xtransport::Error::new(xtransport::error::ErrorKind::CrcMismatch);
+        let virge_err: VirgeError = xt_err.into();
+        match virge_err {
+            VirgeError::Other(msg) => {
+                assert!(msg.contains("XTransport error"));
+            }
+            _ => panic!("Expected Other variant"),
+        }
+    }
+}

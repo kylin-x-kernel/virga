@@ -8,8 +8,8 @@ use std::io::{Read, Write};
 use log::*;
 
 use super::ClientConfig;
-use crate::ReadState;
 use crate::transport::XTransportHandler;
+use crate::ReadState;
 
 /// 同步客户端
 pub struct VirgeClient {
@@ -187,5 +187,98 @@ impl Write for VirgeClient {
 
     fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::client::ClientConfig;
+    use std::io::{Read, Write};
+
+    fn make_client() -> VirgeClient {
+        let config = ClientConfig::default();
+        VirgeClient::new(config)
+    }
+
+    #[test]
+    fn new_client_not_connected() {
+        let client = make_client();
+        assert!(!client.is_connected());
+        assert!(!client.connected);
+    }
+
+    #[test]
+    fn new_client_empty_read_buffer() {
+        let client = make_client();
+        assert!(client.read_buffer.is_empty());
+        assert_eq!(client.read_state, ReadState::Idle);
+    }
+
+    #[test]
+    fn no_has_data_initially_true() {
+        let client = make_client();
+        assert!(client.no_has_data());
+    }
+
+    #[test]
+    fn send_when_not_connected_fails() {
+        let mut client = make_client();
+        let result = client.send(vec![1, 2, 3]);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::NotConnected);
+    }
+
+    #[test]
+    fn recv_when_not_connected_fails() {
+        let mut client = make_client();
+        let result = client.recv();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::NotConnected);
+    }
+
+    #[test]
+    fn read_when_not_connected_fails() {
+        let mut client = make_client();
+        let mut buf = [0u8; 10];
+        let result = client.read(&mut buf);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::NotConnected);
+    }
+
+    #[test]
+    fn write_when_not_connected_fails() {
+        let mut client = make_client();
+        let result = client.write(&[1, 2, 3]);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::NotConnected);
+    }
+
+    #[test]
+    fn flush_always_ok() {
+        let mut client = make_client();
+        assert!(client.flush().is_ok());
+    }
+
+    #[test]
+    fn send_empty_when_not_connected_fails() {
+        let mut client = make_client();
+        let result = client.send(vec![]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn new_client_with_custom_config() {
+        let config = ClientConfig::new(100, 9999, 4096, true);
+        let client = VirgeClient::new(config);
+        assert!(!client.is_connected());
+        assert_eq!(client.config.server_cid, 100);
+        assert_eq!(client.config.server_port, 9999);
+        assert_eq!(client.config.chunk_size, 4096);
+        assert!(client.config.is_ack);
     }
 }

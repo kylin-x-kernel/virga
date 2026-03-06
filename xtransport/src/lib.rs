@@ -12,9 +12,7 @@ pub mod io;
 pub mod protocol;
 pub mod transport;
 
+pub use config::{HEADER_SIZE, MAGIC, MESSAGE_HEAD_SIZE, TransportConfig, VERSION};
 pub use error::{Error, Result};
 pub use io::{Read, Write};
-pub use config::{TransportConfig, MAGIC, VERSION, HEADER_SIZE, MESSAGE_HEAD_SIZE};
 pub use transport::XTransport;
-
-

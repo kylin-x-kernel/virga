@@ -5,9 +5,9 @@
 use std::sync::OnceLock;
 
 use crate::error::{Result, VirgeError};
+use futures::future::poll_fn;
 use futures::AsyncReadExt;
 use futures::AsyncWriteExt;
-use futures::future::poll_fn;
 use log::*;
 use tokio::runtime::Runtime;
 use tokio::task::JoinHandle;

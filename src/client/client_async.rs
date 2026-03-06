@@ -8,8 +8,8 @@ use std::io::{Read, Write};
 use log::*;
 
 use super::ClientConfig;
-use crate::ReadState;
 use crate::transport::YamuxTransportHandler;
+use crate::ReadState;
 
 /// Yamux 客户端（同步接口，内部通过 tokio runtime 驱动 yamux）
 pub struct VirgeClient {
