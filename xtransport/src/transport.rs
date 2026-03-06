@@ -3,11 +3,11 @@
 // See LICENSES for license details.
 
 use crate::{
-    config::{TransportConfig, HEADER_SIZE, MESSAGE_HEAD_SIZE},
+    Result,
+    config::{HEADER_SIZE, MESSAGE_HEAD_SIZE, TransportConfig},
     error::{Error, ErrorKind},
     io::{Read, Write},
-    protocol::{Packet, PacketHeader, PacketType, MessageHead},
-    Result,
+    protocol::{MessageHead, Packet, PacketHeader, PacketType},
 };
 use alloc::vec::Vec;
 
@@ -46,12 +46,17 @@ impl<T: Read + Write> XTransport<T> {
         let mut combined = Vec::with_capacity(header_bytes.len() + packet.data.len());
         combined.extend_from_slice(&header_bytes);
         combined.extend_from_slice(&packet.data);
-        
+
         // Send combined buffer in one write call
         self.inner.write_all(&combined)?;
-        
-        log::trace!("Sent packet type={:?}, seq={}, len={}", pkt_type, seq, packet.data.len());
-        
+
+        log::trace!(
+            "Sent packet type={:?}, seq={}, len={}",
+            pkt_type,
+            seq,
+            packet.data.len()
+        );
+
         // Wait for ACK if configured and not sending an ACK itself
         if self.config.wait_for_ack && pkt_type != PacketType::Ack {
             let ack_packet = self.recv_packet_internal()?;
@@ -61,14 +66,19 @@ impl<T: Read + Write> XTransport<T> {
             if ack_packet.data.len() < 4 {
                 return Err(Error::new(ErrorKind::InvalidPacket));
             }
-            let ack_seq = u32::from_le_bytes([ack_packet.data[0], ack_packet.data[1], ack_packet.data[2], ack_packet.data[3]]);
+            let ack_seq = u32::from_le_bytes([
+                ack_packet.data[0],
+                ack_packet.data[1],
+                ack_packet.data[2],
+                ack_packet.data[3],
+            ]);
             if ack_seq != seq {
                 log::warn!("ACK seq mismatch: expected {}, got {}", seq, ack_seq);
                 return Err(Error::new(ErrorKind::InvalidPacket));
             }
             log::trace!("Received ACK for seq={}", seq);
         }
-        
+
         Ok(())
     }
 
@@ -76,13 +86,13 @@ impl<T: Read + Write> XTransport<T> {
         let ack_data = seq.to_le_bytes();
         let ack_packet = Packet::new(PacketType::Ack, self.send_seq, ack_data.to_vec());
         self.send_seq = self.send_seq.wrapping_add(1);
-        
+
         let header_bytes = ack_packet.header.to_bytes();
         let mut combined = Vec::with_capacity(header_bytes.len() + ack_packet.data.len());
         combined.extend_from_slice(&header_bytes);
         combined.extend_from_slice(&ack_packet.data);
         self.inner.write_all(&combined)?;
-        
+
         log::trace!("Sent ACK for seq={}", seq);
         Ok(())
     }
@@ -104,22 +114,26 @@ impl<T: Read + Write> XTransport<T> {
             return Err(Error::new(ErrorKind::CrcMismatch));
         }
 
-        log::trace!("Received packet seq={}, len={}", packet.header.seq, packet.data.len());
+        log::trace!(
+            "Received packet seq={}, len={}",
+            packet.header.seq,
+            packet.data.len()
+        );
 
         Ok(packet)
     }
 
     fn recv_packet(&mut self) -> Result<Packet> {
         let packet = self.recv_packet_internal()?;
-        
+
         // Send ACK if configured and not receiving an ACK itself
         let pkt_type = PacketType::from_u8(packet.header.pkt_type)
             .ok_or_else(|| Error::new(ErrorKind::InvalidPacket))?;
-        
+
         if self.config.wait_for_ack && pkt_type != PacketType::Ack {
             self.send_ack(packet.header.seq)?;
         }
-        
+
         // Update receive sequence
         self.recv_seq = packet.header.seq.wrapping_add(1);
 
@@ -136,24 +150,29 @@ impl<T: Read + Write> XTransport<T> {
             // Large message: MessageHead + multiple MessageData packets
             let message_id = self.next_message_id;
             self.next_message_id = self.next_message_id.wrapping_add(1);
-            
-            let packet_count = ((data.len() + self.config.max_payload_size - 1) / self.config.max_payload_size) as u32;
-            
+
+            let packet_count = ((data.len() + self.config.max_payload_size - 1)
+                / self.config.max_payload_size) as u32;
+
             // Send MessageHead
             let head = MessageHead::new(data.len() as u64, message_id, packet_count);
             self.send_packet(PacketType::MessageHead, &head.to_bytes())?;
-            
-            log::debug!("Sending large message: id={}, total={} bytes, packets={}", 
-                       message_id, data.len(), packet_count);
-            
+
+            log::debug!(
+                "Sending large message: id={}, total={} bytes, packets={}",
+                message_id,
+                data.len(),
+                packet_count
+            );
+
             // Send MessageData packets
             for chunk in data.chunks(self.config.max_payload_size) {
                 self.send_packet(PacketType::MessageData, chunk)?;
             }
-            
+
             log::debug!("Large message sent: id={}", message_id);
         }
-        
+
         self.inner.flush()?;
         Ok(())
     }
@@ -164,94 +183,115 @@ impl<T: Read + Write> XTransport<T> {
         let mut header_buf = [0u8; HEADER_SIZE];
         self.inner.read_exact(&mut header_buf)?;
         let header = PacketHeader::from_bytes(&header_buf)?;
-        
+
         let pkt_type = PacketType::from_u8(header.pkt_type)
             .ok_or_else(|| Error::new(ErrorKind::InvalidPacket))?;
-        
+
         match pkt_type {
             PacketType::Data => {
                 // Single packet message
                 let mut data = alloc::vec![0u8; header.length as usize];
                 self.inner.read_exact(&mut data)?;
-                
+
                 let packet = Packet { header, data };
                 if !packet.verify_crc() {
                     return Err(Error::new(ErrorKind::CrcMismatch));
                 }
-                
+
                 // Send ACK if configured
                 if self.config.wait_for_ack {
                     self.send_ack(packet.header.seq)?;
                 }
-                
-                log::debug!("Received single-packet message: {} bytes", packet.data.len());
+
+                log::debug!(
+                    "Received single-packet message: {} bytes",
+                    packet.data.len()
+                );
                 Ok(packet.data)
             }
             PacketType::MessageHead => {
                 // Multi-packet message
                 let mut head_data = alloc::vec![0u8; header.length as usize];
                 self.inner.read_exact(&mut head_data)?;
-                
-                let packet = Packet { header, data: head_data };
+
+                let packet = Packet {
+                    header,
+                    data: head_data,
+                };
                 if !packet.verify_crc() {
                     return Err(Error::new(ErrorKind::CrcMismatch));
                 }
-                
+
                 // Send ACK for MessageHead if configured
                 if self.config.wait_for_ack {
                     self.send_ack(packet.header.seq)?;
                 }
-                
+
                 if packet.data.len() < MESSAGE_HEAD_SIZE {
                     return Err(Error::new(ErrorKind::InvalidPacket));
                 }
-                
+
                 let mut head_bytes = [0u8; MESSAGE_HEAD_SIZE];
                 head_bytes.copy_from_slice(&packet.data[..MESSAGE_HEAD_SIZE]);
                 let msg_head = MessageHead::from_bytes(&head_bytes)?;
-                
-                log::debug!("Receiving large message: id={}, total={} bytes, packets={}", 
-                           msg_head.message_id, msg_head.total_length, msg_head.packet_count);
-                
+
+                log::debug!(
+                    "Receiving large message: id={}, total={} bytes, packets={}",
+                    msg_head.message_id,
+                    msg_head.total_length,
+                    msg_head.packet_count
+                );
+
                 // Receive all data packets
                 let mut result = alloc::vec![0u8; msg_head.total_length as usize];
                 let mut offset = 0;
-                
+
                 for i in 0..msg_head.packet_count {
                     let mut data_header_buf = [0u8; HEADER_SIZE];
                     self.inner.read_exact(&mut data_header_buf)?;
                     let data_header = PacketHeader::from_bytes(&data_header_buf)?;
-                    
+
                     let data_type = PacketType::from_u8(data_header.pkt_type)
                         .ok_or_else(|| Error::new(ErrorKind::InvalidPacket))?;
-                    
+
                     if data_type != PacketType::MessageData {
                         return Err(Error::new(ErrorKind::InvalidPacket));
                     }
-                    
+
                     let mut chunk = alloc::vec![0u8; data_header.length as usize];
                     self.inner.read_exact(&mut chunk)?;
-                    
-                    let data_packet = Packet { header: data_header, data: chunk };
+
+                    let data_packet = Packet {
+                        header: data_header,
+                        data: chunk,
+                    };
                     if !data_packet.verify_crc() {
                         return Err(Error::new(ErrorKind::CrcMismatch));
                     }
-                    
+
                     // Send ACK for each MessageData if configured
                     if self.config.wait_for_ack {
                         self.send_ack(data_packet.header.seq)?;
                     }
-                    
+
                     let to_copy = core::cmp::min(data_packet.data.len(), result.len() - offset);
                     result[offset..offset + to_copy].copy_from_slice(&data_packet.data[..to_copy]);
                     offset += to_copy;
-                    
+
                     if (i + 1) % 100 == 0 || i + 1 == msg_head.packet_count {
-                        log::debug!("Progress: {}/{} packets received", i + 1, msg_head.packet_count);
+                        log::debug!(
+                            "Progress: {}/{} packets received",
+                            i + 1,
+                            msg_head.packet_count
+                        );
                     }
                 }
-                
-                log::debug!("Large message received: id={}, {} bytes", msg_head.message_id, result.len());
+
+                log::debug!(
+                    "Large message received: id={}, {} bytes",
+                    msg_head.message_id,
+                    result.len()
+                );
                 Ok(result)
             }
             PacketType::MessageData | PacketType::Ack => {
@@ -381,11 +421,7 @@ mod tests {
     #[test]
     fn send_recv_multiple_messages_sequential() {
         let mut buf: Vec<u8> = Vec::new();
-        let messages = vec![
-            vec![1, 2, 3],
-            vec![4, 5, 6, 7, 8],
-            vec![9],
-        ];
+        let messages = vec![vec![1, 2, 3], vec![4, 5, 6, 7, 8], vec![9]];
 
         {
             let cursor = Cursor::new(&mut buf);
@@ -662,7 +698,11 @@ mod tests {
         // Valid MessageHead followed by corrupted MessageData
         let head = MessageHead::new(5, 1, 1);
         let mut buf = build_raw_packet(PacketType::MessageHead, 0, &head.to_bytes());
-        buf.extend_from_slice(&build_corrupted_packet(PacketType::MessageData, 1, &[1, 2, 3, 4, 5]));
+        buf.extend_from_slice(&build_corrupted_packet(
+            PacketType::MessageData,
+            1,
+            &[1, 2, 3, 4, 5],
+        ));
 
         let cursor = Cursor::new(buf);
         let config = TransportConfig::default();

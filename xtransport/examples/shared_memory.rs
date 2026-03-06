@@ -3,8 +3,8 @@
 // See LICENSES for license details.
 
 use shared_memory::ShmemConf;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::thread;
 use std::time::Duration;
 use xtransport::{Read, Result, TransportConfig, Write, XTransport};
@@ -25,7 +25,13 @@ unsafe impl Send for SharedMemoryStream {}
 unsafe impl Sync for SharedMemoryStream {}
 
 impl SharedMemoryStream {
-    fn new_writer(ptr: *mut u8, size: usize, read_pos: Arc<AtomicUsize>, write_pos: Arc<AtomicUsize>, closed: Arc<AtomicBool>) -> Self {
+    fn new_writer(
+        ptr: *mut u8,
+        size: usize,
+        read_pos: Arc<AtomicUsize>,
+        write_pos: Arc<AtomicUsize>,
+        closed: Arc<AtomicBool>,
+    ) -> Self {
         Self {
             ptr,
             size,
@@ -35,7 +41,13 @@ impl SharedMemoryStream {
         }
     }
 
-    fn new_reader(ptr: *mut u8, size: usize, read_pos: Arc<AtomicUsize>, write_pos: Arc<AtomicUsize>, closed: Arc<AtomicBool>) -> Self {
+    fn new_reader(
+        ptr: *mut u8,
+        size: usize,
+        read_pos: Arc<AtomicUsize>,
+        write_pos: Arc<AtomicUsize>,
+        closed: Arc<AtomicBool>,
+    ) -> Self {
         Self {
             ptr,
             size,
@@ -89,14 +101,18 @@ impl Read for SharedMemoryStream {
         unsafe {
             let src = self.ptr.add(offset);
             let remaining = self.size - offset;
-            
+
             if to_read <= remaining {
                 std::ptr::copy_nonoverlapping(src, buf.as_mut_ptr(), to_read);
             } else {
                 // Wrap around
                 std::ptr::copy_nonoverlapping(src, buf.as_mut_ptr(), remaining);
                 let src2 = self.ptr;
-                std::ptr::copy_nonoverlapping(src2, buf.as_mut_ptr().add(remaining), to_read - remaining);
+                std::ptr::copy_nonoverlapping(
+                    src2,
+                    buf.as_mut_ptr().add(remaining),
+                    to_read - remaining,
+                );
             }
         }
 
@@ -131,14 +147,18 @@ impl Write for SharedMemoryStream {
         unsafe {
             let dst = self.ptr.add(offset);
             let remaining = self.size - offset;
-            
+
             if to_write <= remaining {
                 std::ptr::copy_nonoverlapping(buf.as_ptr(), dst, to_write);
             } else {
                 // Wrap around
                 std::ptr::copy_nonoverlapping(buf.as_ptr(), dst, remaining);
                 let dst2 = self.ptr;
-                std::ptr::copy_nonoverlapping(buf.as_ptr().add(remaining), dst2, to_write - remaining);
+                std::ptr::copy_nonoverlapping(
+                    buf.as_ptr().add(remaining),
+                    dst2,
+                    to_write - remaining,
+                );
             }
         }
 
@@ -155,10 +175,7 @@ fn main() {
     env_logger::init();
 
     println!("Creating shared memory...");
-    let shmem = match ShmemConf::new()
-        .size(BUFFER_SIZE)
-        .create()
-    {
+    let shmem = match ShmemConf::new().size(BUFFER_SIZE).create() {
         Ok(m) => Arc::new(m),
         Err(e) => {
             eprintln!("Failed to create shared memory: {}", e);
@@ -171,14 +188,14 @@ fn main() {
     let closed = Arc::new(AtomicBool::new(false));
 
     println!("Starting writer thread...");
-    let writer_ptr = shmem.as_ptr() as usize;  // Convert to usize for Send
+    let writer_ptr = shmem.as_ptr() as usize; // Convert to usize for Send
     let writer_read_pos = read_pos.clone();
     let writer_write_pos = write_pos.clone();
     let writer_closed = closed.clone();
-    
+
     let writer_handle = thread::spawn(move || {
         let stream = SharedMemoryStream::new_writer(
-            writer_ptr as *mut u8,  // Convert back to pointer
+            writer_ptr as *mut u8, // Convert back to pointer
             BUFFER_SIZE,
             writer_read_pos,
             writer_write_pos,
@@ -188,13 +205,14 @@ fn main() {
 
         println!("[Writer] Sending {} MB of data...", DATA_SIZE / 1024 / 1024);
         let data = vec![0x42u8; DATA_SIZE];
-        
+
         let start = std::time::Instant::now();
         match transport.send_message(&data) {
             Ok(_) => {
                 let elapsed = start.elapsed();
                 let speed = DATA_SIZE as f64 / elapsed.as_secs_f64() / 1024.0 / 1024.0;
-                println!("[Writer] Sent {} MB in {:.2}s, Speed: {:.2} MB/s",
+                println!(
+                    "[Writer] Sent {} MB in {:.2}s, Speed: {:.2} MB/s",
                     DATA_SIZE / 1024 / 1024,
                     elapsed.as_secs_f64(),
                     speed
@@ -210,17 +228,17 @@ fn main() {
     });
 
     println!("Starting reader thread...");
-    let reader_ptr = shmem.as_ptr() as usize;  // Convert to usize for Send
+    let reader_ptr = shmem.as_ptr() as usize; // Convert to usize for Send
     let reader_read_pos = read_pos.clone();
     let reader_write_pos = write_pos.clone();
     let reader_closed = closed.clone();
-    
+
     let reader_handle = thread::spawn(move || {
         // Give writer a head start
         thread::sleep(Duration::from_millis(100));
 
         let stream = SharedMemoryStream::new_reader(
-            reader_ptr as *mut u8,  // Convert back to pointer
+            reader_ptr as *mut u8, // Convert back to pointer
             BUFFER_SIZE,
             reader_read_pos,
             reader_write_pos,
@@ -230,12 +248,13 @@ fn main() {
 
         println!("[Reader] Receiving data...");
         let start = std::time::Instant::now();
-        
+
         match transport.recv_message() {
             Ok(data) => {
                 let elapsed = start.elapsed();
                 let speed = data.len() as f64 / elapsed.as_secs_f64() / 1024.0 / 1024.0;
-                println!("[Reader] Received {} MB in {:.2}s, Speed: {:.2} MB/s",
+                println!(
+                    "[Reader] Received {} MB in {:.2}s, Speed: {:.2} MB/s",
                     data.len() / 1024 / 1024,
                     elapsed.as_secs_f64(),
                     speed

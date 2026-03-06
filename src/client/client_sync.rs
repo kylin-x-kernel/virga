@@ -8,8 +8,8 @@ use std::io::{Read, Write};
 use log::*;
 
 use super::ClientConfig;
-use crate::ReadState;
 use crate::transport::XTransportHandler;
+use crate::ReadState;
 
 /// 同步客户端
 pub struct VirgeClient {

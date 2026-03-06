@@ -14,9 +14,9 @@ pub use server_sync::VirgeServer;
 #[cfg(feature = "use-yamux")]
 pub mod server_async;
 #[cfg(feature = "use-yamux")]
-pub use crate::transport::YamuxTransportHandler;
-#[cfg(feature = "use-yamux")]
 use crate::transport::get_runtime;
+#[cfg(feature = "use-yamux")]
+pub use crate::transport::YamuxTransportHandler;
 #[cfg(feature = "use-yamux")]
 pub use server_async::VirgeServer;
 

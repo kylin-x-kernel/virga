@@ -2,18 +2,18 @@
 // Copyright 2025 KylinSoft Co., Ltd. <https://www.kylinos.cn/>
 // See LICENSES for license details.
 
-use crate::{Error, error::ErrorKind, Result};
-use crate::config::{MAGIC, VERSION, HEADER_SIZE, MESSAGE_HEAD_SIZE};
+use crate::config::{HEADER_SIZE, MAGIC, MESSAGE_HEAD_SIZE, VERSION};
+use crate::{Error, Result, error::ErrorKind};
 use alloc::vec::Vec;
 use crc32fast::Hasher;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum PacketType {
-    Data = 0,          // Single packet message
-    MessageHead = 1,   // Multi-packet message header
-    MessageData = 2,   // Multi-packet message data
-    Ack = 3,           // Acknowledgment packet
+    Data = 0,        // Single packet message
+    MessageHead = 1, // Multi-packet message header
+    MessageData = 2, // Multi-packet message data
+    Ack = 3,         // Acknowledgment packet
 }
 
 impl PacketType {
@@ -31,12 +31,12 @@ impl PacketType {
 #[derive(Debug)]
 #[repr(C)]
 pub struct PacketHeader {
-    pub magic: u32,      // 4 bytes
-    pub version: u8,     // 1 byte
-    pub pkt_type: u8,    // 1 byte - Packet type
-    pub seq: u32,        // 4 bytes
-    pub length: u16,     // 2 bytes
-    pub crc32: u32,      // 4 bytes
+    pub magic: u32,   // 4 bytes
+    pub version: u8,  // 1 byte
+    pub pkt_type: u8, // 1 byte - Packet type
+    pub seq: u32,     // 4 bytes
+    pub length: u16,  // 2 bytes
+    pub crc32: u32,   // 4 bytes
 }
 
 impl PacketHeader {
@@ -91,11 +91,11 @@ impl PacketHeader {
 
 #[repr(C)]
 pub struct MessageHead {
-    pub total_length: u64,   // 8 bytes - Total message length
-    pub message_id: u64,     // 8 bytes - Unique message ID
-    pub packet_count: u32,   // 4 bytes - Total packet count
-    pub flags: u32,          // 4 bytes - Message flags
-    pub reserved: [u8; 8],   // 8 bytes - Reserved for extension
+    pub total_length: u64, // 8 bytes - Total message length
+    pub message_id: u64,   // 8 bytes - Unique message ID
+    pub packet_count: u32, // 4 bytes - Total packet count
+    pub flags: u32,        // 4 bytes - Message flags
+    pub reserved: [u8; 8], // 8 bytes - Reserved for extension
 }
 
 impl MessageHead {
@@ -150,7 +150,7 @@ impl Packet {
     pub fn new(pkt_type: PacketType, seq: u32, data: Vec<u8>) -> Self {
         let length = data.len() as u16;
         let mut header = PacketHeader::new(pkt_type, seq, length);
-        
+
         // Calculate CRC32
         let mut hasher = Hasher::new();
         hasher.update(&data);
@@ -173,7 +173,7 @@ mod tests {
     use crate::config::{HEADER_SIZE, MAGIC, MESSAGE_HEAD_SIZE, VERSION};
     use crate::error::ErrorKind;
     use alloc::vec;
-    
+
     // ==================== PacketType tests ====================
 
     #[test]

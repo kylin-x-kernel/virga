@@ -7,8 +7,8 @@ use std::io::{Read, Write};
 
 use log::*;
 
-use crate::ReadState;
 use crate::transport::YamuxTransportHandler;
+use crate::ReadState;
 
 /// Virga 服务器连接
 pub struct VirgeServer {

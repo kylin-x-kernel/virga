@@ -105,22 +105,37 @@ mod tests {
 
     #[test]
     fn read_state_reading_eq() {
-        let s1 = ReadState::Reading { total: 100, read: 50 };
-        let s2 = ReadState::Reading { total: 100, read: 50 };
+        let s1 = ReadState::Reading {
+            total: 100,
+            read: 50,
+        };
+        let s2 = ReadState::Reading {
+            total: 100,
+            read: 50,
+        };
         assert_eq!(s1, s2);
     }
 
     #[test]
     fn read_state_different_ne() {
         let idle = ReadState::Idle;
-        let reading = ReadState::Reading { total: 100, read: 0 };
+        let reading = ReadState::Reading {
+            total: 100,
+            read: 0,
+        };
         assert_ne!(idle, reading);
     }
 
     #[test]
     fn read_state_reading_different_values_ne() {
-        let s1 = ReadState::Reading { total: 100, read: 50 };
-        let s2 = ReadState::Reading { total: 100, read: 60 };
+        let s1 = ReadState::Reading {
+            total: 100,
+            read: 50,
+        };
+        let s2 = ReadState::Reading {
+            total: 100,
+            read: 60,
+        };
         assert_ne!(s1, s2);
     }
 

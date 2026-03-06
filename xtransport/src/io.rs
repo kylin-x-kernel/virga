@@ -6,7 +6,7 @@ use crate::{Error, Result};
 
 pub trait Read {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize>;
-    
+
     fn read_exact(&mut self, mut buf: &mut [u8]) -> Result<()> {
         while !buf.is_empty() {
             let n = self.read(buf)?;
@@ -16,7 +16,7 @@ pub trait Read {
             let tmp = buf;
             buf = &mut tmp[n..];
         }
-        
+
         if buf.is_empty() {
             Ok(())
         } else {
@@ -28,7 +28,7 @@ pub trait Read {
 pub trait Write {
     fn write(&mut self, buf: &[u8]) -> Result<usize>;
     fn flush(&mut self) -> Result<()>;
-    
+
     fn write_all(&mut self, mut buf: &[u8]) -> Result<()> {
         while !buf.is_empty() {
             let n = self.write(buf)?;
@@ -45,29 +45,30 @@ pub trait Write {
 #[cfg(feature = "std")]
 impl<T: std::io::Read> Read for T {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
-        std::io::Read::read(self, buf)
-            .map_err(|e| Error::new(match e.kind() {
+        std::io::Read::read(self, buf).map_err(|e| {
+            Error::new(match e.kind() {
                 std::io::ErrorKind::UnexpectedEof => crate::error::ErrorKind::UnexpectedEof,
                 std::io::ErrorKind::Interrupted => crate::error::ErrorKind::Interrupted,
                 _ => crate::error::ErrorKind::Other,
-            }))
+            })
+        })
     }
 }
 
 #[cfg(feature = "std")]
 impl<T: std::io::Write> Write for T {
     fn write(&mut self, buf: &[u8]) -> Result<usize> {
-        std::io::Write::write(self, buf)
-            .map_err(|e| Error::new(match e.kind() {
+        std::io::Write::write(self, buf).map_err(|e| {
+            Error::new(match e.kind() {
                 std::io::ErrorKind::WriteZero => crate::error::ErrorKind::WriteZero,
                 std::io::ErrorKind::Interrupted => crate::error::ErrorKind::Interrupted,
                 _ => crate::error::ErrorKind::Other,
-            }))
+            })
+        })
     }
-    
+
     fn flush(&mut self) -> Result<()> {
-        std::io::Write::flush(self)
-            .map_err(|_| Error::new(crate::error::ErrorKind::Other))
+        std::io::Write::flush(self).map_err(|_| Error::new(crate::error::ErrorKind::Other))
     }
 }
 
@@ -197,7 +198,10 @@ mod tests {
 
     impl std::io::Write for WriteZeroErrorWriter {
         fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
-            Err(std::io::Error::new(std::io::ErrorKind::WriteZero, "write zero"))
+            Err(std::io::Error::new(
+                std::io::ErrorKind::WriteZero,
+                "write zero",
+            ))
         }
         fn flush(&mut self) -> std::io::Result<()> {
             Ok(())
@@ -215,7 +219,10 @@ mod tests {
 
     impl std::io::Write for InterruptedWriteErrorWriter {
         fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
-            Err(std::io::Error::new(std::io::ErrorKind::Interrupted, "interrupted"))
+            Err(std::io::Error::new(
+                std::io::ErrorKind::Interrupted,
+                "interrupted",
+            ))
         }
         fn flush(&mut self) -> std::io::Result<()> {
             Ok(())
@@ -237,7 +244,10 @@ mod tests {
             Ok(buf.len())
         }
         fn flush(&mut self) -> std::io::Result<()> {
-            Err(std::io::Error::new(std::io::ErrorKind::Other, "flush error"))
+            Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "flush error",
+            ))
         }
     }
 
