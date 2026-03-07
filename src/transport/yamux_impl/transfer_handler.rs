@@ -2,7 +2,7 @@
 // Copyright 2025 KylinSoft Co., Ltd. <https://www.kylinos.cn/>
 // See LICENSES for license details.
 
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use crate::error::{Result, VirgeError};
 use futures::future::poll_fn;
@@ -17,19 +17,31 @@ use tokio_vsock::{VsockAddr, VsockStream};
 use yamux::Stream;
 use yamux::{Config, Connection, Mode};
 
-/// 全局 tokio 运行时
+/// 消息长度前缀的字节数（使用 usize, 8字节）
+const LENGTH_PREFIX_SIZE: usize = 8;
+
+/// 全局 tokio 运行时（多线程）
 static TOKIO_RT: OnceLock<Runtime> = OnceLock::new();
 
 pub fn get_runtime() -> &'static Runtime {
-    TOKIO_RT.get_or_init(|| Runtime::new().expect("Failed to create tokio runtime for yamux"))
+    TOKIO_RT.get_or_init(|| {
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(4)
+            .enable_all()
+            .build()
+            .expect("Failed to create tokio runtime for yamux")
+    })
 }
 
 /// Yamux 传输协议处理器
 ///
 /// 对外提供同步接口，内部通过 tokio runtime 驱动 yamux 异步操作。
 /// Connection 所有权在获取 stream 后移交给 driver task，避免死锁。
+/// 
+/// 使用 Arc<Mutex<Stream>> 在 block_on 和 driver task 之间共享 stream，
+/// 避免 block_on 阻塞整个 runtime 导致死锁。
 pub struct YamuxTransportHandler {
-    yamux_stream: Option<Stream>,
+    yamux_stream: Option<Arc<tokio::sync::Mutex<Stream>>>,
     driver_handle: Option<JoinHandle<()>>,
     mode: Mode,
 }
@@ -63,7 +75,7 @@ impl YamuxTransportHandler {
             .map_err(|e| {
                 VirgeError::TransportError(format!("Failed to open yamux outbound stream: {}", e))
             })?;
-        self.yamux_stream = Some(stream);
+        self.yamux_stream = Some(Arc::new(tokio::sync::Mutex::new(stream)));
 
         // 将 connection 移交给 driver task
         let handle = get_runtime().spawn(async move {
@@ -76,12 +88,12 @@ impl YamuxTransportHandler {
                         break;
                     }
                     None => {
-                        info!("Yamux connection closed (driver)");
+                        debug!("Yamux connection closed (driver)");
                         break;
                     }
                 }
             }
-            info!("Yamux connection driver stopped");
+            debug!("Yamux connection driver stopped");
         });
         self.driver_handle = Some(handle);
 
@@ -101,7 +113,7 @@ impl YamuxTransportHandler {
 
         match stream_result {
             Some(Ok(s)) => {
-                self.yamux_stream = Some(s);
+                self.yamux_stream = Some(Arc::new(tokio::sync::Mutex::new(s)));
             }
             Some(Err(e)) => {
                 return Err(VirgeError::TransportError(format!(
@@ -127,12 +139,12 @@ impl YamuxTransportHandler {
                         break;
                     }
                     None => {
-                        info!("Yamux server connection closed (driver)");
+                        debug!("Yamux server connection poll returned None (connection closed)");
                         break;
                     }
                 }
             }
-            info!("Yamux server connection driver stopped");
+            debug!("Yamux server connection driver stopped");
         });
         self.driver_handle = Some(handle);
 
@@ -143,12 +155,19 @@ impl YamuxTransportHandler {
     pub fn disconnect(&mut self) -> Result<()> {
         info!("Yamux transport disconnecting");
 
-        // 关闭 stream
-        if let Some(mut stream) = self.yamux_stream.take() {
+        // 关闭 stream（会发送 FIN 帧）
+        if let Some(stream) = self.yamux_stream.take() {
             let _ = get_runtime().block_on(async {
-                let _ = stream.close().await;
+                let mut s = stream.lock().await;
+                // 先 flush 确保所有数据发送完成
+                let _ = s.flush().await;
+                // 然后关闭
+                let _ = s.close().await;
             });
         }
+
+        // 给 driver 一点时间处理关闭帧
+        std::thread::sleep(std::time::Duration::from_secs(1));
 
         // 等待 driver 退出
         if let Some(handle) = self.driver_handle.take() {
@@ -161,47 +180,84 @@ impl YamuxTransportHandler {
         Ok(())
     }
 
-    /// 发送数据
+    /// 发送数据（使用长度前缀协议）
     pub fn send(&mut self, data: &[u8]) -> Result<usize> {
         let stream = self
             .yamux_stream
-            .as_mut()
-            .ok_or_else(|| VirgeError::TransportError("Yamux stream not available".into()))?;
+            .as_ref()
+            .ok_or_else(|| VirgeError::TransportError("Yamux stream not available".into()))?
+            .clone();
+        
+        let data_len = data.len();
+        let data = data.to_vec();
 
+        // 使用 spawn 在独立任务中执行，避免阻塞 driver
         get_runtime().block_on(async {
-            stream
-                .write_all(data)
-                .await
-                .map_err(|e| VirgeError::Other(format!("yamux send error: {}", e)))?;
-            stream
-                .flush()
-                .await
-                .map_err(|e| VirgeError::Other(format!("yamux flush error: {}", e)))?;
-            Ok::<_, VirgeError>(())
+            let send_task = tokio::spawn(async move {
+                let mut s = stream.lock().await;
+
+                // 先发送8字节的长度前缀
+                let len = data.len() as usize;
+                let len_bytes = len.to_be_bytes();
+                s.write_all(&len_bytes)
+                    .await
+                    .map_err(|e| VirgeError::Other(format!("yamux send length error: {}", e)))?;
+                
+                // 再发送实际数据
+                s.write_all(&data)
+                    .await
+                    .map_err(|e| VirgeError::Other(format!("yamux send error: {}", e)))?;
+                
+                // flush 确保数据发送出去
+                s.flush()
+                    .await
+                    .map_err(|e| VirgeError::Other(format!("yamux flush error: {}", e)))?;
+                
+                Ok::<_, VirgeError>(())
+            });
+            
+            send_task.await.map_err(|e| VirgeError::Other(format!("send task join error: {}", e)))?
         })?;
 
-        debug!("Yamux sent {} bytes", data.len());
-        Ok(data.len())
+        debug!("Yamux sent {} bytes (with length prefix)", data_len);
+        Ok(data_len)
     }
 
-    /// 接收数据
+    /// 接收数据（使用长度前缀协议）
     pub fn recv(&mut self) -> Result<Vec<u8>> {
         let stream = self
             .yamux_stream
-            .as_mut()
-            .ok_or_else(|| VirgeError::TransportError("Yamux stream not available".into()))?;
+            .as_ref()
+            .ok_or_else(|| VirgeError::TransportError("Yamux stream not available".into()))?
+            .clone();
 
-        let mut buf = vec![0u8; 64 * 1024];
-        let n = get_runtime().block_on(async {
-            stream
-                .read(&mut buf)
-                .await
-                .map_err(|e| VirgeError::Other(format!("yamux recv error: {}", e)))
+        let data = get_runtime().block_on(async {
+            let recv_task = tokio::spawn(async move {
+                let mut s = stream.lock().await;
+                
+                // 先读取8字节的长度前缀
+                let mut len_buf = [0u8; LENGTH_PREFIX_SIZE];
+                s.read_exact(&mut len_buf)
+                    .await
+                    .map_err(|e| VirgeError::Other(format!("yamux recv length error: {}", e)))?;
+                
+                let len = u64::from_be_bytes(len_buf) as usize;
+                debug!("Yamux expecting to receive {} bytes", len);
+                
+                // 读取实际数据
+                let mut buf = vec![0u8; len];
+                s.read_exact(&mut buf)
+                    .await
+                    .map_err(|e| VirgeError::Other(format!("yamux recv error: {}", e)))?;
+                
+                Ok::<Vec<u8>, VirgeError>(buf)
+            });
+            
+            recv_task.await.map_err(|e| VirgeError::Other(format!("recv task join error: {}", e)))?
         })?;
 
-        buf.truncate(n);
-        debug!("Yamux received {} bytes", n);
-        Ok(buf)
+        debug!("Yamux received {} bytes", data.len());
+        Ok(data)
     }
 
     pub fn is_connected(&self) -> bool {
