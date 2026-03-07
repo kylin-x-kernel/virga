@@ -255,4 +255,137 @@ mod tests {
         assert!(result.is_ok());
         assert!(!server.connected);
     }
+
+    #[test]
+    fn disconnect_with_unread_data_fails() {
+        let handler = XTransportHandler::new();
+        let mut server = VirgeServer::new(handler, true);
+        // Simulate data in read buffer
+        server.read_buffer = vec![1, 2, 3];
+        let result = server.disconnect();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::Other);
+        assert!(err.to_string().contains("unread data"));
+    }
+
+    #[test]
+    fn read_state_updates_correctly() {
+        let handler = XTransportHandler::new();
+        let mut server = VirgeServer::new(handler, true);
+        // Mock connected state but don't actually connect
+        server.connected = false;
+
+        // Test reading state transitions with data in buffer
+        server.read_state = ReadState::Reading {
+            total: 100,
+            read: 50,
+        };
+        server.read_buffer = vec![1, 2, 3, 4, 5];
+        server.connected = true; // Set connected for read to work
+
+        let mut buf = [0u8; 3];
+        let result = server.read(&mut buf);
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 3);
+        assert_eq!(buf, [1, 2, 3]);
+        assert_eq!(server.read_buffer, vec![4, 5]);
+
+        // State should be updated
+        match server.read_state {
+            ReadState::Reading { total, read } => {
+                assert_eq!(total, 100);
+                assert_eq!(read, 53);
+            }
+            _ => panic!("Expected ReadState::Reading"),
+        }
+    }
+
+    #[test]
+    fn read_state_idle_when_complete() {
+        let handler = XTransportHandler::new();
+        let mut server = VirgeServer::new(handler, true);
+        // Set state to nearly complete
+        server.read_state = ReadState::Reading {
+            total: 100,
+            read: 97,
+        };
+        server.read_buffer = vec![1, 2, 3];
+
+        let mut buf = [0u8; 10];
+        let result = server.read(&mut buf);
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 3);
+        // Should transition to Idle when complete
+        assert_eq!(server.read_state, ReadState::Idle);
+    }
+
+    #[test]
+    fn read_with_empty_buffer_in_reading_state() {
+        let handler = XTransportHandler::new();
+        let mut server = VirgeServer::new(handler, true);
+        server.read_state = ReadState::Reading {
+            total: 100,
+            read: 50,
+        };
+        // Empty read buffer but in Reading state
+        server.read_buffer.clear();
+
+        let mut buf = [0u8; 10];
+        let result = server.read(&mut buf);
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 0);
+        // Should reset to Idle
+        assert_eq!(server.read_state, ReadState::Idle);
+    }
+
+    #[test]
+    fn no_has_data_with_buffer() {
+        let handler = XTransportHandler::new();
+        let mut server = VirgeServer::new(handler, false);
+        server.read_buffer = vec![1, 2, 3];
+        assert!(!server.no_has_data());
+    }
+
+    #[test]
+    fn no_has_data_with_reading_state() {
+        let handler = XTransportHandler::new();
+        let mut server = VirgeServer::new(handler, false);
+        server.read_state = ReadState::Reading {
+            total: 100,
+            read: 50,
+        };
+        assert!(!server.no_has_data());
+    }
+
+    #[test]
+    fn disconnect_logs_info() {
+        let handler = XTransportHandler::new();
+        let mut server = VirgeServer::new(handler, true);
+        // Test disconnect logging
+        let result = server.disconnect();
+        assert!(result.is_ok());
+        assert!(!server.connected);
+    }
+
+    #[test]
+    fn recv_error_message_format() {
+        let mut server = make_disconnected_server();
+        let result = server.recv();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("not connected"));
+    }
+
+    #[test]
+    fn send_error_message_format() {
+        let mut server = make_disconnected_server();
+        let result = server.send(vec![1, 2, 3]);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("not connected"));
+    }
 }

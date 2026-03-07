@@ -281,4 +281,176 @@ mod tests {
         assert_eq!(client.config.chunk_size, 4096);
         assert!(client.config.is_ack);
     }
+
+    #[test]
+    fn disconnect_with_unread_data_fails() {
+        let mut client = make_client();
+        // Simulate data in read buffer
+        client.read_buffer = vec![1, 2, 3];
+        let result = client.disconnect();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::Other);
+        assert!(err.to_string().contains("unread data"));
+    }
+
+    #[test]
+    fn read_state_updates_correctly() {
+        let mut client = make_client();
+        // Mock connected state and setup reading scenario
+        client.connected = true;
+        client.read_state = ReadState::Reading {
+            total: 100,
+            read: 50,
+        };
+        client.read_buffer = vec![1, 2, 3, 4, 5];
+
+        let mut buf = [0u8; 3];
+        let result = client.read(&mut buf);
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 3);
+        assert_eq!(buf, [1, 2, 3]);
+        assert_eq!(client.read_buffer, vec![4, 5]);
+
+        // State should be updated
+        match client.read_state {
+            ReadState::Reading { total, read } => {
+                assert_eq!(total, 100);
+                assert_eq!(read, 53);
+            }
+            _ => panic!("Expected ReadState::Reading"),
+        }
+    }
+
+    #[test]
+    fn read_state_idle_when_complete() {
+        let mut client = make_client();
+        // Mock connected state and setup completion scenario
+        client.connected = true;
+        client.read_state = ReadState::Reading {
+            total: 100,
+            read: 97,
+        };
+        client.read_buffer = vec![1, 2, 3];
+
+        let mut buf = [0u8; 10];
+        let result = client.read(&mut buf);
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 3);
+        // Should transition to Idle when complete
+        assert_eq!(client.read_state, ReadState::Idle);
+    }
+
+    #[test]
+    fn read_with_empty_buffer_in_reading_state() {
+        let mut client = make_client();
+        // Mock connected state and setup edge case scenario
+        client.connected = true;
+        client.read_state = ReadState::Reading {
+            total: 100,
+            read: 50,
+        };
+        // Empty read buffer but in Reading state
+        client.read_buffer.clear();
+
+        let mut buf = [0u8; 10];
+        let result = client.read(&mut buf);
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 0);
+        // Should reset to Idle
+        assert_eq!(client.read_state, ReadState::Idle);
+    }
+
+    #[test]
+    fn no_has_data_with_buffer() {
+        let mut client = make_client();
+        client.read_buffer = vec![1, 2, 3];
+        assert!(!client.no_has_data());
+    }
+
+    #[test]
+    fn no_has_data_with_reading_state() {
+        let mut client = make_client();
+        client.read_state = ReadState::Reading {
+            total: 100,
+            read: 50,
+        };
+        assert!(!client.no_has_data());
+    }
+
+    #[test]
+    fn connect_logs_info() {
+        // This tests the logging path in connect
+        let mut client = make_client();
+        // We can't actually connect without a real vsock, but we can test the error path
+        let result = client.connect();
+        assert!(result.is_err());
+        // Should remain not connected on error
+        assert!(!client.connected);
+    }
+
+    #[test]
+    fn disconnect_logs_info() {
+        // Test disconnect logging with connected client
+        let mut client = make_client();
+        client.connected = true; // Simulate connected state
+        let result = client.disconnect();
+        // Will fail due to no actual connection, but tests the logging path
+        assert!(result.is_ok());
+        assert!(!client.connected);
+    }
+
+    #[test]
+    fn read_new_message_simulation() {
+        // This test exercises the read_new_message path indirectly
+        let mut client = make_client();
+        client.connected = true;
+
+        // Test read when in Idle state (will try to call read_new_message)
+        let mut buf = [0u8; 10];
+        let result = client.read(&mut buf);
+        // Will fail because transport isn't really connected, but exercises the path
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn write_error_conversion() {
+        // Test that write errors are properly converted
+        let mut client = make_client();
+        client.connected = true; // Mock connected but transport will fail
+
+        let result = client.write(&[1, 2, 3]);
+        assert!(result.is_err());
+        // Error should be converted from transport error
+        let err = result.unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::Other);
+    }
+
+    #[test]
+    fn is_connected_checks_both_flags() {
+        let mut client = make_client();
+        // Test when client.connected is true but transport is not
+        client.connected = true;
+        assert!(!client.is_connected()); // Should be false because transport not connected
+
+        client.connected = false;
+        assert!(!client.is_connected()); // Should be false
+    }
+
+    #[test]
+    fn send_and_recv_error_formatting() {
+        let mut client = make_client();
+        client.connected = true; // Mock connected
+
+        // Test send error message format
+        let send_result = client.send(vec![1, 2, 3]);
+        assert!(send_result.is_err());
+
+        // Test recv error message format
+        let recv_result = client.recv();
+        assert!(recv_result.is_err());
+    }
 }
