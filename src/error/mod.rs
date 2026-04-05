@@ -72,8 +72,8 @@ impl From<VirgeError> for std::io::Error {
 }
 
 #[cfg(feature = "use-xtransport")]
-impl From<xtransport::Error> for VirgeError {
-    fn from(err: xtransport::Error) -> Self {
+impl From<crate::transport::xtransport::Error> for VirgeError {
+    fn from(err: crate::transport::xtransport::Error) -> Self {
         VirgeError::Other(format!("XTransport error: {}", err))
     }
 }
@@ -181,7 +181,9 @@ mod tests {
     #[cfg(feature = "use-xtransport")]
     #[test]
     fn from_xtransport_error() {
-        let xt_err = xtransport::Error::new(xtransport::error::ErrorKind::CrcMismatch);
+        let xt_err = crate::transport::xtransport::Error::new(
+            crate::transport::xtransport::error::ErrorKind::CrcMismatch,
+        );
         let virge_err: VirgeError = xt_err.into();
         match virge_err {
             VirgeError::Other(msg) => {

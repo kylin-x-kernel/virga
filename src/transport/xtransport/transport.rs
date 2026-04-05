@@ -2,14 +2,14 @@
 // Copyright 2025 KylinSoft Co., Ltd. <https://www.kylinos.cn/>
 // See LICENSES for license details.
 
-use crate::{
-    Result,
-    config::{HEADER_SIZE, MESSAGE_HEAD_SIZE, TransportConfig},
+use crate::transport::xtransport::{
+    config::{TransportConfig, HEADER_SIZE, MESSAGE_HEAD_SIZE},
     error::{Error, ErrorKind},
     io::{Read, Write},
     protocol::{MessageHead, Packet, PacketHeader, PacketType},
+    Result,
 };
-use alloc::vec::Vec;
+use std::vec::Vec;
 
 pub struct XTransport<T> {
     inner: T,
@@ -104,7 +104,7 @@ impl<T: Read + Write> XTransport<T> {
         let header = PacketHeader::from_bytes(&header_buf)?;
 
         // Read data
-        let mut data = alloc::vec![0u8; header.length as usize];
+        let mut data = std::vec![0u8; header.length as usize];
         self.inner.read_exact(&mut data)?;
 
         let packet = Packet { header, data };
@@ -190,7 +190,7 @@ impl<T: Read + Write> XTransport<T> {
         match pkt_type {
             PacketType::Data => {
                 // Single packet message
-                let mut data = alloc::vec![0u8; header.length as usize];
+                let mut data = std::vec![0u8; header.length as usize];
                 self.inner.read_exact(&mut data)?;
 
                 let packet = Packet { header, data };
@@ -211,7 +211,7 @@ impl<T: Read + Write> XTransport<T> {
             }
             PacketType::MessageHead => {
                 // Multi-packet message
-                let mut head_data = alloc::vec![0u8; header.length as usize];
+                let mut head_data = std::vec![0u8; header.length as usize];
                 self.inner.read_exact(&mut head_data)?;
 
                 let packet = Packet {
@@ -243,7 +243,7 @@ impl<T: Read + Write> XTransport<T> {
                 );
 
                 // Receive all data packets
-                let mut result = alloc::vec![0u8; msg_head.total_length as usize];
+                let mut result = std::vec![0u8; msg_head.total_length as usize];
                 let mut offset = 0;
 
                 for i in 0..msg_head.packet_count {
@@ -258,7 +258,7 @@ impl<T: Read + Write> XTransport<T> {
                         return Err(Error::new(ErrorKind::InvalidPacket));
                     }
 
-                    let mut chunk = alloc::vec![0u8; data_header.length as usize];
+                    let mut chunk = std::vec![0u8; data_header.length as usize];
                     self.inner.read_exact(&mut chunk)?;
 
                     let data_packet = Packet {
@@ -339,10 +339,10 @@ impl<T: Read + Write> Write for XTransport<T> {
     }
 }
 
-#[cfg(all(test, feature = "std"))]
+#[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::TransportConfig;
+    use crate::transport::xtransport::config::TransportConfig;
     use std::io::Cursor;
 
     /// Helper: send a message through one XTransport, then recv on another
@@ -724,9 +724,9 @@ mod tests {
         let cursor = Cursor::new(buf);
         let config = TransportConfig::default();
         let mut transport = XTransport::new(cursor, config);
-        // Use crate::io::Read trait which internally calls recv_packet -> recv_packet_internal
+        // Use crate::transport::xtransport::io::Read trait which internally calls recv_packet -> recv_packet_internal
         let mut read_buf = [0u8; 10];
-        let result = crate::io::Read::read(&mut transport, &mut read_buf);
+        let result = crate::transport::xtransport::io::Read::read(&mut transport, &mut read_buf);
         assert!(result.is_err());
     }
 
@@ -735,7 +735,7 @@ mod tests {
         // Construct a header with invalid packet type (e.g., 255)
         let mut header = PacketHeader::new(PacketType::Data, 0, 3);
         header.pkt_type = 255; // invalid type
-        // Compute CRC for the data
+                               // Compute CRC for the data
         let data = vec![1, 2, 3];
         let mut hasher = crc32fast::Hasher::new();
         hasher.update(&data);

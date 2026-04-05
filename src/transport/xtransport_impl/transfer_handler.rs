@@ -11,9 +11,9 @@
 //! - 轻量级设计
 
 use crate::error::{Result, VirgeError};
+use crate::transport::xtransport::{TransportConfig, XTransport};
 use log::*;
 use vsock::{VsockAddr, VsockStream};
-use xtransport::{TransportConfig, XTransport};
 
 /// XTransport 传输协议实现
 ///
