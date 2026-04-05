@@ -5,6 +5,8 @@
 //! 传输协议层
 
 #[cfg(feature = "use-xtransport")]
+pub mod xtransport;
+#[cfg(feature = "use-xtransport")]
 mod xtransport_impl;
 #[cfg(feature = "use-xtransport")]
 pub use xtransport_impl::XTransportHandler;

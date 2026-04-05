@@ -2,10 +2,10 @@
 // Copyright 2025 KylinSoft Co., Ltd. <https://www.kylinos.cn/>
 // See LICENSES for license details.
 
-use crate::config::{HEADER_SIZE, MAGIC, MESSAGE_HEAD_SIZE, VERSION};
-use crate::{Error, Result, error::ErrorKind};
-use alloc::vec::Vec;
+use crate::transport::xtransport::config::{HEADER_SIZE, MAGIC, MESSAGE_HEAD_SIZE, VERSION};
+use crate::transport::xtransport::{error::ErrorKind, Error, Result};
 use crc32fast::Hasher;
+use std::vec::Vec;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -170,9 +170,9 @@ impl Packet {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{HEADER_SIZE, MAGIC, MESSAGE_HEAD_SIZE, VERSION};
-    use crate::error::ErrorKind;
-    use alloc::vec;
+    use crate::transport::xtransport::config::{HEADER_SIZE, MAGIC, MESSAGE_HEAD_SIZE, VERSION};
+    use crate::transport::xtransport::error::ErrorKind;
+    use std::vec;
 
     // ==================== PacketType tests ====================
 

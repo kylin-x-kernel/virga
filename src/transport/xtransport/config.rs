@@ -42,7 +42,7 @@ impl Default for TransportConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{HEADER_SIZE, MAGIC, MESSAGE_HEAD_SIZE, VERSION};
+    use crate::transport::xtransport::config::{HEADER_SIZE, MAGIC, MESSAGE_HEAD_SIZE, VERSION};
 
     #[test]
     fn constants_have_expected_values() {

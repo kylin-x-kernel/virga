@@ -47,10 +47,8 @@ impl fmt::Display for Error {
     }
 }
 
-#[cfg(feature = "std")]
 impl std::error::Error for Error {}
 
-#[cfg(feature = "std")]
 impl From<Error> for std::io::Error {
     fn from(err: Error) -> std::io::Error {
         let kind = match err.kind {
@@ -68,7 +66,7 @@ pub type Result<T> = core::result::Result<T, Error>;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloc::format;
+    use std::format;
 
     #[test]
     fn error_kind_values() {
@@ -157,7 +155,6 @@ mod tests {
         assert_eq!(kind, cloned);
     }
 
-    #[cfg(feature = "std")]
     #[test]
     fn error_to_io_error_unexpected_eof() {
         let err = Error::new(ErrorKind::UnexpectedEof);
@@ -165,7 +162,6 @@ mod tests {
         assert_eq!(io_err.kind(), std::io::ErrorKind::UnexpectedEof);
     }
 
-    #[cfg(feature = "std")]
     #[test]
     fn error_to_io_error_write_zero() {
         let err = Error::new(ErrorKind::WriteZero);
@@ -173,7 +169,6 @@ mod tests {
         assert_eq!(io_err.kind(), std::io::ErrorKind::WriteZero);
     }
 
-    #[cfg(feature = "std")]
     #[test]
     fn error_to_io_error_interrupted() {
         let err = Error::new(ErrorKind::Interrupted);
@@ -181,7 +176,6 @@ mod tests {
         assert_eq!(io_err.kind(), std::io::ErrorKind::Interrupted);
     }
 
-    #[cfg(feature = "std")]
     #[test]
     fn error_to_io_error_other_kinds() {
         let other_kinds = [
@@ -198,7 +192,6 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "std")]
     #[test]
     fn error_implements_std_error() {
         let err = Error::new(ErrorKind::Other);

@@ -37,7 +37,7 @@ pub fn get_runtime() -> &'static Runtime {
 ///
 /// 对外提供同步接口，内部通过 tokio runtime 驱动 yamux 异步操作。
 /// Connection 所有权在获取 stream 后移交给 driver task，避免死锁。
-/// 
+///
 /// 使用 Arc<Mutex<Stream>> 在 block_on 和 driver task 之间共享 stream，
 /// 避免 block_on 阻塞整个 runtime 导致死锁。
 pub struct YamuxTransportHandler {
@@ -187,7 +187,7 @@ impl YamuxTransportHandler {
             .as_ref()
             .ok_or_else(|| VirgeError::TransportError("Yamux stream not available".into()))?
             .clone();
-        
+
         let data_len = data.len();
         let data = data.to_vec();
 
@@ -202,21 +202,23 @@ impl YamuxTransportHandler {
                 s.write_all(&len_bytes)
                     .await
                     .map_err(|e| VirgeError::Other(format!("yamux send length error: {}", e)))?;
-                
+
                 // 再发送实际数据
                 s.write_all(&data)
                     .await
                     .map_err(|e| VirgeError::Other(format!("yamux send error: {}", e)))?;
-                
+
                 // flush 确保数据发送出去
                 s.flush()
                     .await
                     .map_err(|e| VirgeError::Other(format!("yamux flush error: {}", e)))?;
-                
+
                 Ok::<_, VirgeError>(())
             });
-            
-            send_task.await.map_err(|e| VirgeError::Other(format!("send task join error: {}", e)))?
+
+            send_task
+                .await
+                .map_err(|e| VirgeError::Other(format!("send task join error: {}", e)))?
         })?;
 
         debug!("Yamux sent {} bytes (with length prefix)", data_len);
@@ -234,26 +236,28 @@ impl YamuxTransportHandler {
         let data = get_runtime().block_on(async {
             let recv_task = tokio::spawn(async move {
                 let mut s = stream.lock().await;
-                
+
                 // 先读取8字节的长度前缀
                 let mut len_buf = [0u8; LENGTH_PREFIX_SIZE];
                 s.read_exact(&mut len_buf)
                     .await
                     .map_err(|e| VirgeError::Other(format!("yamux recv length error: {}", e)))?;
-                
+
                 let len = u64::from_be_bytes(len_buf) as usize;
                 debug!("Yamux expecting to receive {} bytes", len);
-                
+
                 // 读取实际数据
                 let mut buf = vec![0u8; len];
                 s.read_exact(&mut buf)
                     .await
                     .map_err(|e| VirgeError::Other(format!("yamux recv error: {}", e)))?;
-                
+
                 Ok::<Vec<u8>, VirgeError>(buf)
             });
-            
-            recv_task.await.map_err(|e| VirgeError::Other(format!("recv task join error: {}", e)))?
+
+            recv_task
+                .await
+                .map_err(|e| VirgeError::Other(format!("recv task join error: {}", e)))?
         })?;
 
         debug!("Yamux received {} bytes", data.len());
