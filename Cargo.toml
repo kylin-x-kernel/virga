@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2021"
 authors = ["KylinSoft Co., Ltd. <https://www.kylinos.cn/>"]
 license = "Apache-2.0"
+description = "A reliable transport protocol library supporting yamux and xtransport"
+repository = "https://github.com/kylin-x-kernel/virga.git"
 
 [features]
 default = ["use-xtransport"]     # 默认启用 xtransport 特性
